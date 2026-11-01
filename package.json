@@ -1,0 +1,62 @@
+{
+  "name": "dsh-chat-recall",
+  "version": "0.2.1",
+  "private": true,
+  "type": "module",
+  "description": "Original conversation recall with exact, keyword and semantic search, incremental indexing and verified source pagination",
+  "engines": {
+    "node": ">=22.6",
+    "dsh": ">=0.2.1-rc.5"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/host/plugin.d.ts",
+      "import": "./dist/host/plugin.js",
+      "default": "./dist/host/plugin.js"
+    },
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.png"
+  },
+  "files": [
+    "dist/",
+    "src/",
+    "scripts/clean.ts",
+    "scripts/check-package.ts",
+    "tsconfig.json",
+    "cordis.patch.yml",
+    "locale/",
+    "icon.png",
+    "icon.svg",
+    "README.md",
+    "docs/production.md",
+    "docs/production-validation.md",
+    "docs/development.md",
+    "docs/cleanup.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "format": "prettier --write 'src/**/*.ts' 'test/**/*.ts' 'scripts/**/*.ts'",
+    "format:check": "prettier --check 'src/**/*.ts' 'test/**/*.ts' 'scripts/**/*.ts'",
+    "test": "node --experimental-strip-types scripts/test.ts",
+    "check:package": "node --experimental-strip-types scripts/check-package.ts",
+    "clean": "node --experimental-strip-types scripts/clean.ts",
+    "prepack": "pnpm run build",
+    "postpack": "pnpm run clean"
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "3.18.5",
+    "@lancedb/lancedb": "0.41.0",
+    "apache-arrow": "21.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "prettier": "3.6.2",
+    "typescript": "5.9.3"
+  }
+}

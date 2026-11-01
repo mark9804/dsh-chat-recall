@@ -1,0 +1,8 @@
+- insert:
+    - id: dsh-chat-recall
+      name: dsh-chat-recall
+      config:
+        nodePath: node
+        sessionIds: []
+        embeddingSessionIds: []
+        autoSync: true

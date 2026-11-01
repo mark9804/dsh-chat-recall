@@ -1,0 +1,10 @@
+packages:
+  - .
+
+# Keep installs explicit; running a script must not rebuild or purge node_modules.
+verifyDepsBeforeRun: false
+
+# Embeddings use native fetch; do not install optional model runtimes or SDKs.
+ignoredOptionalDependencies:
+  - openai
+  - '@huggingface/transformers'
