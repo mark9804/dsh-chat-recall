@@ -1,13 +1,16 @@
-import Schema from '@deepseek-ai/schemastery';
 import { fileURLToPath } from 'node:url';
-import { resolve, isAbsolute, join } from 'node:path';
-import { homedir } from 'node:os';
+import { resolve, isAbsolute } from 'node:path';
+import { snapshotConfig } from './config.js';
+import type { SettingsConfig } from './config.js';
+export { Config } from './config.js';
 import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { WorkerBridge } from './bridge.js';
 import { SessionSync } from './sync.js';
 
 import type {
   HostContext,
+  SettingsHostContext,
+  RuntimeFiber,
   ToolDefinition,
   ToolExecution,
   AuthorizedExecution,
@@ -35,47 +38,6 @@ import { messageOf } from '../shared/session-text.js';
 
 export const name = 'dsh-chat-recall';
 export const inject = ['tools', 'subprocess', 'sessionQuery', 'sessions'];
-export const Config = Schema.object({
-  nodePath: Schema.string()
-    .default('node')
-    .description('Independent Node >=22 executable capable of loading LanceDB.'),
-  dataPath: Schema.string()
-    .default(join(homedir(), '.dsh', 'chat-recall'))
-    .description('Absolute derived-index directory; one plugin instance per directory.'),
-  sessionIds: Schema.array(Schema.string())
-    .default([])
-    .description(
-      'Sessions to index; ["all"] includes all main conversations, including archived and user forks.',
-    ),
-  embeddingSessionIds: Schema.array(Schema.string())
-    .default([])
-    .description(
-      'Sessions explicitly allowed to send text to the embedding service; ["all"] covers the configured text corpus.',
-    ),
-  envFile: Schema.string().description(
-    'Absolute local env-file with OpenAI-compatible credentials. Read only by the worker.',
-  ),
-  callerSessionIds: Schema.array(Schema.string())
-    .default([])
-    .description('Optional caller session allowlist; empty exposes tools to this profile.'),
-  autoSync: Schema.boolean()
-    .default(true)
-    .description(
-      'Backfill configured sessions and process committed event tails in the background.',
-    ),
-  dominantMin: Schema.number()
-    .min(0)
-    .max(1)
-    .default(0.5)
-    .description(
-      'Minimum top cosine similarity for single-candidate display; heuristic, not a confidence threshold.',
-    ),
-  dominantGap: Schema.number()
-    .min(0)
-    .max(2)
-    .default(0.15)
-    .description('Required top1 minus top2 cosine gap for single-candidate display.'),
-});
 const obj = (properties: Record<string, unknown>, required: string[] = []) => ({
   type: 'object',
   properties,
@@ -93,7 +55,72 @@ function fail(code: string): never {
   throw Object.assign(new Error(`Chat recall: ${code}`), { code });
 }
 
-export function apply(ctx: HostContext, config: PluginConfig): void {
+function hasLifecycle(ctx: HostContext): ctx is SettingsHostContext {
+  return 'plugin' in ctx && typeof ctx.plugin === 'function' && 'fiber' in ctx;
+}
+
+/** Keep settings ownership stable while each runtime generation owns its effects. */
+export function apply(ctx: HostContext, config: SettingsConfig): void {
+  const initial = snapshotConfig(config);
+  if (!hasLifecycle(ctx)) {
+    applyRuntime(ctx, initial);
+    return;
+  }
+  const host = ctx;
+  host.inject?.(['settings'], (child) => {
+    child.effect(() => child.settings.configure({ auto: false }, host.fiber));
+  });
+
+  type Generation = { fiber?: RuntimeFiber; close?: () => Promise<void> };
+  let active: Generation | undefined;
+  let disposed = false;
+  let revision = 0;
+  let transition = Promise.resolve();
+  const alive = () => !disposed && ctx.fiber.uid !== null && ctx.fiber.state !== 5;
+  function mount(snapshot: PluginConfig, version: number) {
+    if (!alive() || version !== revision) return;
+    const generation: Generation = {};
+    active = generation;
+    const fiber = host.plugin((child) => {
+      // Cordis activates children asynchronously; an update/unload may win that race.
+      if (!alive() || version !== revision) return;
+      generation.close = applyRuntime(child, snapshot);
+    });
+    generation.fiber = fiber;
+    // A failed child must not leave an unhandled readiness rejection.
+    void fiber.await().catch((error: unknown) => host.logger?.warn(error));
+  }
+  function retire(generation: Generation | undefined): Promise<void> {
+    if (!generation) return Promise.resolve();
+    // Close synchronously fences stale tool callbacks and rejects bridge requests.
+    // Fiber disposal also removes all tools/listeners. Its cleanup errors are logged
+    // by Cordis, so await the explicit close too: failed shutdown must prevent remount.
+    return Promise.all([generation.close?.(), generation.fiber?.dispose()]).then(() => {});
+  }
+  mount(initial, revision);
+  ctx.on('loader/volatile-update', () => {
+    if (!alive()) return;
+    const snapshot = snapshotConfig(config);
+    const version = ++revision;
+    const closing = retire(active);
+    active = undefined;
+    void closing.catch(() => {});
+    transition = transition.then(async () => {
+      await closing;
+      mount(snapshot, version);
+    });
+    void transition.catch((error: unknown) => ctx.logger?.warn(error));
+  });
+  ctx.effect(() => async () => {
+    disposed = true;
+    revision++;
+    const closing = retire(active);
+    active = undefined;
+    await Promise.all([transition, closing]);
+  });
+}
+
+export function applyRuntime(ctx: HostContext, config: PluginConfig): () => Promise<void> {
   if (!isAbsolute(config.dataPath) || (config.envFile && !isAbsolute(config.envFile)))
     throw new Error('Recall paths must be absolute.');
   const lifetime = new AbortController();
@@ -133,6 +160,7 @@ export function apply(ctx: HostContext, config: PluginConfig): void {
           });
       await configurePromise;
     }
+    if (closing) fail('CLOSED');
     return bridge.request(method, params, signal) as Promise<Result<M>>;
   }
   const syncer = new SessionSync({ ctx, request, sessionIds: config.sessionIds });
@@ -148,7 +176,9 @@ export function apply(ctx: HostContext, config: PluginConfig): void {
     searchScopes = new Map<string, { ids: string[]; expires: number }>();
   const initial = async () => {
     if (config.autoSync) {
-      for (const id of await syncer.ids(lifetime.signal)) dirty.add(id);
+      const ids = await syncer.ids(lifetime.signal);
+      if (closing) return;
+      for (const id of ids) dirty.add(id);
       schedule();
     }
   };
@@ -179,6 +209,7 @@ export function apply(ctx: HostContext, config: PluginConfig): void {
   }
   ctx.on('session/event', (session, event) => {
     if (
+      !closing &&
       config.autoSync &&
       syncer.allowed(session.id) &&
       session.header.origin !== 'subagent' &&
@@ -257,9 +288,12 @@ export function apply(ctx: HostContext, config: PluginConfig): void {
       timeoutMs: 240000,
       isConcurrencySafe: () => false,
       async execute(args, exec) {
+        if (closing) fail('CLOSED');
         authorize(exec);
+        const current = { ...exec, signal: AbortSignal.any([exec.signal, lifetime.signal]) };
         await initialization;
-        return execute(args as A, exec);
+        if (closing) fail('CLOSED');
+        return execute(args as A, current);
       },
     });
   }
@@ -598,11 +632,21 @@ export function apply(ctx: HostContext, config: PluginConfig): void {
       };
     },
   );
-  ctx.effect(() => async () => {
+  let closePromise: Promise<void> | undefined;
+  function close(): Promise<void> {
+    if (closePromise) return closePromise;
     closing = true;
     lifetime.abort();
     if (timer) clearTimeout(timer);
-    await bridge.close();
-    await Promise.allSettled([initialization, draining, syncer.close()]);
-  });
+    closePromise = (async () => {
+      try {
+        await bridge.close();
+      } finally {
+        await Promise.allSettled([initialization, draining, syncer.close()]);
+      }
+    })();
+    return closePromise;
+  }
+  ctx.effect(() => close);
+  return close;
 }

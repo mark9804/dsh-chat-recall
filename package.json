@@ -1,6 +1,6 @@
 {
   "name": "dsh-chat-recall",
-  "version": "0.2.1",
+  "version": "0.3.1",
   "private": true,
   "type": "module",
   "description": "Original conversation recall with exact, keyword and semantic search, incremental indexing and verified source pagination",
@@ -14,21 +14,26 @@
       "import": "./dist/host/plugin.js",
       "default": "./dist/host/plugin.js"
     },
+    "./client": "./dist/client/settings.js",
     "./locale/*.json": "./locale/*.json",
     "./icon": "./icon.png"
   },
   "files": [
     "dist/",
     "src/",
+    "scripts/build-client.ts",
+    "scripts/build-vendor.ts",
     "scripts/clean.ts",
     "scripts/check-package.ts",
     "tsconfig.json",
     "cordis.patch.yml",
     "locale/",
+    "licenses/",
     "icon.png",
     "icon.svg",
     "README.md",
     "docs/production.md",
+    "docs/settings.md",
     "docs/production-validation.md",
     "docs/development.md",
     "docs/cleanup.md"
@@ -36,10 +41,18 @@
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-locale"
+      ]
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node --experimental-strip-types scripts/build-client.ts && node --experimental-strip-types scripts/build-vendor.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "format": "prettier --write 'src/**/*.ts' 'test/**/*.ts' 'scripts/**/*.ts'",
     "format:check": "prettier --check 'src/**/*.ts' 'test/**/*.ts' 'scripts/**/*.ts'",
@@ -51,10 +64,21 @@
   },
   "dependencies": {
     "@deepseek-ai/schemastery": "3.18.5",
-    "@lancedb/lancedb": "0.41.0",
+    "@opentelemetry/api": "1.10.0",
+    "reflect-metadata": "0.2.2",
     "apache-arrow": "21.1.0"
   },
+  "optionalDependencies": {
+    "@lancedb/lancedb-darwin-arm64": "0.41.0",
+    "@lancedb/lancedb-linux-x64-gnu": "0.41.0",
+    "@lancedb/lancedb-linux-arm64-gnu": "0.41.0",
+    "@lancedb/lancedb-linux-x64-musl": "0.41.0",
+    "@lancedb/lancedb-linux-arm64-musl": "0.41.0",
+    "@lancedb/lancedb-win32-x64-msvc": "0.41.0",
+    "@lancedb/lancedb-win32-arm64-msvc": "0.41.0"
+  },
   "devDependencies": {
+    "@lancedb/lancedb": "0.41.0",
     "@types/node": "24.19.2",
     "prettier": "3.6.2",
     "typescript": "5.9.3"

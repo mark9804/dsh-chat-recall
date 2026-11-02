@@ -1,4 +1,4 @@
-import * as lance from '@lancedb/lancedb';
+import lance from './lance.js';
 import type { Connection, Table, Query, VectorQuery, Index } from '@lancedb/lancedb';
 import { Schema, Field, Utf8, Float64, Bool, Int32, Float32, FixedSizeList } from 'apache-arrow';
 import type { RecordBatch } from 'apache-arrow';

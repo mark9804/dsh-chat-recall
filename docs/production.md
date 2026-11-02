@@ -1,12 +1,14 @@
-# dsh-chat-recall v0.2 使用与边界
+# dsh-chat-recall v0.3 使用与边界
 
-这是可安装的Host插件，不是独立网页或MCP服务器。需要可加载第三方原生模块的独立Node >=22.6（推荐24 LTS）；macOS DSH内置签名Node不能代替它。Host只负责DSH接入，LanceDB运行在受管理子进程中。
+这是可安装的Host＋Client插件，设置页集成在DSH内，不是独立网页或MCP服务器。需要可加载第三方原生模块的独立Node >=22.6（推荐24 LTS）；macOS DSH内置签名Node不能代替它。Host只负责DSH接入，LanceDB运行在受管理子进程中。
 
 ## 安装与配置
 
 用DSH插件管理器安装本包。默认 `sessionIds: []`、`embeddingSessionIds: []`，不会读历史或发请求。
 
-源码仓库现为TS-only，不常驻构建产物。源码链接安装前先执行 `pnpm run build`，链接运行期间不能clean；若希望仓库始终干净，执行 `pnpm pack --pack-destination <仓库外目录>` 后安装生成的包。pack会先构建再清理仓库产物。历史实验链接包在清理时已卸载，索引数据仍保留，当前没有自动启用任何范围。
+源码仓库现为TS-only，不常驻构建产物。源码链接安装前先执行 `pnpm run build`，链接运行期间不能clean；若希望仓库始终干净，执行 `pnpm pack --pack-destination <仓库外目录>` 后安装生成的包。pack会先构建再清理仓库产物。
+
+安装后在 **DSH 设置 → 对话回溯** 配置，不必编辑YAML。编辑先暂存在页面，保存时使用DSH原生revision校验；新配置关闭旧实例后生效，旧分页游标随之失效。扩大索引／外发范围需要明确确认；打开页面本身不触发索引或embedding。详见 [设置页说明](<settings.md>)。
 
 配置字段：
 

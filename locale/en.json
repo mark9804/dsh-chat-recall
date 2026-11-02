@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Chat Recall",
-    "description": "Recall original conversations with exact, keyword and semantic search, incremental indexing and verified paginated reads. History and remote embeddings are opt-in."
+    "description": "Manage Chat Recall in Settings: exact, keyword and semantic search with incremental indexing and verified paginated reads. Local history and remote embeddings are separately opt-in."
   }
 }

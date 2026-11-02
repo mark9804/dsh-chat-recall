@@ -30,6 +30,8 @@ v0.2.1 是阶段性代码整理：正式实现从 JavaScript 迁到 TypeScript�
 | [contracts.ts](<../src/host/contracts.ts>) | 实际使用的 DSH 公共接口最小结构类型 |
 | [types.ts](<../src/host/types.ts>) | 工具参数、Host 游标和配置类型 |
 | [main.ts](<../src/worker/main.ts>) | 子进程入口，串行分发操作 |
+| [settings.ts](<../src/client/settings.ts>) | DSH原生设置页、草稿和授权确认 |
+| [config.ts](<../src/host/config.ts>) | 可编辑配置schema、运行时快照与校验 |
 
 ## 构建与测试
 
@@ -52,11 +54,21 @@ pnpm run clean           # 删除dist，不触碰其他目录
 - 声明文件、声明映射与 source map；
 - `skipLibCheck: true` 只跳过依赖声明内部检查，不跳过本项目源码。
 
-编译结果不是第二套手写实现。DSH 的包导出指向编译后的 Host JS；独立 Node 执行编译后的 worker JS。运行时不需要 ts-node、tsx 或 TypeScript loader。
+编译结果不是第二套手写实现。DSH的包导出指向编译后的Host JS；独立Node执行编译后的worker JS；Client通过DSH ModuleLoader加载设置页工厂。运行时不需要ts-node、tsx或TypeScript loader。
+
+[build-client.ts](<../scripts/build-client.ts>)只去除type-only imports导致的空ESM标记，保留source map行位置；不引入新bundler。Client单文件工厂仅require宿主React，不复制React、不import宿主UI包。配置读取与保存使用宿主共享configForms，样式使用已核对的theme tokens，中英文文本走locale。
 
 [package.json](<../package.json>) 的test通过 [test.ts](<../scripts/test.ts>) 先构建、再按 [tsconfig.test.json](<../tsconfig.test.json>) 严格检查所有TS测试、执行回归与产物边界检查；无论成功或失败都在finally中调用 [clean.ts](<../scripts/clean.ts>) 删除dist。只删除验证过的本仓库生成目录，不删除任何索引数据。
 
 prepack先构建，postpack清理；`pnpm pack --pack-destination <仓库外目录>` 可把安装包存到源码树之外。开发依赖固定TypeScript、Node类型与Prettier版本，不执行安装脚本。
+
+## 依赖打包
+
+LanceDB 0.41.0 的完整npm包带有可选OpenAI和Transformers依赖，源码workspace的ignoredOptionalDependencies不会传播到消费插件的profile。v0.3.1将完整包改为开发依赖；[build-vendor.ts](<../scripts/build-vendor.ts>)在构建时把上游dist原样复制到产物内，保留原生加载器和所有许可告知，只生成精简package.json与来源说明。
+
+实际运行依赖是Arrow、OpenTelemetry API、reflect-metadata和按平台安装的LanceDB原生包。插件没有使用上游自动embedding集成，不安装OpenAI／Transformers SDK，也不授权onnxruntime-node、protobufjs、sharp的安装脚本。字节一致性及依赖声明在 [打包测试](<../test/packaging.test.ts>) 中核对。
+
+上游代码不是手写的第二套实现，随dist一起清理。Apache许可文本来自 [Apache官方](https://www.apache.org/licenses/LICENSE-2.0.txt)；升级LanceDB必须重新核对依赖与许可证。完整包保留跨平台原生可选包；本轮只实测macOS arm64。
 
 ## 类型边界的约定
 

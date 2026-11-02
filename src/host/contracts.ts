@@ -132,3 +132,31 @@ export interface HostContext {
   ): unknown;
   effect(factory: () => () => Promise<void>): unknown;
 }
+
+/** Cordis lifecycle surface used only when mounted by the real Host loader. */
+export interface RuntimeFiber {
+  dispose(): void | Promise<void>;
+  await(): Promise<unknown>;
+}
+export interface SettingsHostContext extends HostContext {
+  fiber: { readonly uid: number | null; readonly state?: number };
+  logger?: { warn(error: unknown): void };
+  plugin(apply: (ctx: HostContext) => void): RuntimeFiber;
+  inject?(
+    services: ['settings'],
+    apply: (ctx: {
+      settings: {
+        configure(presentation: { auto: boolean }, owner: SettingsHostContext['fiber']): () => void;
+      };
+      effect(factory: () => () => void): unknown;
+    }) => void,
+  ): unknown;
+  on(
+    event: 'loader/volatile-update',
+    listener: (paths: readonly (readonly string[])[]) => void,
+  ): unknown;
+  on(
+    event: 'session/event',
+    listener: (session: LiveSession, event: SessionEvent) => void,
+  ): unknown;
+}
