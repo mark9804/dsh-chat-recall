@@ -1029,7 +1029,9 @@ export async function openStore({
     // Exact is a literal scan: tokenizer normalization must never remove a hit.
     if (mode === 'fuzzy')
       selection = selection.fullTextSearch(
-        new lance.MatchQuery(query, 'text', { operator: lance.Operator.Or }),
+        // BM25 implementations can accumulate weights in query order. Canonicalize
+        // the candidate query so unordered-keyword permutations share one ranking.
+        new lance.MatchQuery([...terms].sort().join(' '), 'text', { operator: lance.Operator.Or }),
       );
     if (mode === 'exact') selection = selection.orderBy(order);
     // LIMIT occurs after the hard scope and, for exact, original full-block verification.
@@ -1134,16 +1136,14 @@ export async function openStore({
     }
     const ranked = [...best.values()].sort((a, b) => b.similarity - a.similarity || stable(a, b));
     const hits: SearchHit[] = [];
-    // Read only each returned block, never a whole source corpus into JS memory.
-    for (const row of ranked.slice(0, CAP)) {
-      const block = (
-        await rowsOf<IndexedBlock>(
-          blocks
-            .query()
-            .where(`id = ${sql(row.blockId)}`)
-            .limit(1),
-        )
-      )[0];
+    // Materialize only ranked candidates, in bounded batches rather than an N+1
+    // database query per hit. Keep the ranking and source-hash verification intact.
+    const candidates = ranked.slice(0, CAP);
+    const candidateBlocks = await lookup<IndexedBlock, 'id'>(blocks, 'id', [
+      ...new Set(candidates.map((row) => row.blockId)),
+    ]);
+    for (const row of candidates) {
+      const block = candidateBlocks.get(row.blockId);
       if (block && block.textHash === row.textHash)
         hits.push({ ...hitOf(row, block.text, row.start, row.end), similarity: row.similarity });
     }

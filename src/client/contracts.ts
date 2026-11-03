@@ -76,6 +76,29 @@ export interface LocaleService extends Observable<LocaleSnapshot> {
   ): Dispose;
   bind(namespace: string): (key: string, parameters?: Record<string, string | number>) => string;
 }
+/** Metadata-only slices of SessionListSnapshot, provided by the standard Slot hook.
+ * Verified against DSH 0.2.1-rc.5 ui-session (root hooks.sessions = sessions.list),
+ * api-session-controller's buildListSnapshot, and ui-renderer's selector binding.
+ * No Session is retained, opened, or searched for message content by this hook.
+ */
+export interface SessionListItem {
+  readonly sessionId: string;
+  readonly title?: string;
+  readonly cwd?: string;
+  readonly origin?: 'subagent';
+}
+export interface SessionListSnapshot {
+  readonly items: readonly SessionListItem[];
+  readonly state: 'idle' | 'loading' | 'error';
+  readonly phase: 'pending' | 'ready';
+  readonly error: unknown | null;
+}
+export interface UseSessions {
+  <T>(selector: (snapshot: SessionListSnapshot) => T, equal?: (a: T, b: T) => boolean): T;
+}
+export interface SettingsSectionProps {
+  readonly useSessions: UseSessions;
+}
 export interface ClientContext {
   effect(effect: () => Dispose, label?: string): Dispose;
   locale: LocaleService;
@@ -93,7 +116,7 @@ export interface ClientContext {
         label: () => string;
         locale: 'chat-recall';
       },
-      component: () => ReactNode,
+      component: (props: SettingsSectionProps) => ReactNode,
     ): Dispose;
   };
 }

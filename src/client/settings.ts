@@ -4,7 +4,9 @@ import type {
   DescribeSnapshot,
   Observable,
   ReactNode,
+  SessionListSnapshot,
   SettingsPathOp,
+  SettingsSectionProps,
 } from './contracts.js';
 
 /** The only emitted browser entry. All runtime code stays inside this loader factory. */
@@ -41,7 +43,7 @@ window.__ModuleLoader__.load({
       syncSummary: 'Automatic local indexing',
       on: 'Enabled',
       off: 'Off',
-      selectedSummary: '{count} selected conversation IDs',
+      selectedSummary: '{count} selected conversations',
       allSummary: 'All main conversations, including archived conversations and user forks',
       embeddingAllSummary: 'All conversations within the configured local corpus',
       corpusLegend: '1. Local indexing scope',
@@ -50,15 +52,40 @@ window.__ModuleLoader__.load({
       corpusMode: 'Conversations allowed for local indexing',
       selected: 'Selected conversations',
       all: 'All conversations',
-      corpusIds: 'Local corpus conversation IDs',
-      idsHelp:
-        'One exact conversation ID per line. Blank lines and duplicate IDs are removed on save. Use the selector—not the reserved word “all”—to grant all conversations.',
+      corpusIds: 'Choose local corpus conversations',
+      pickerHelp:
+        'Search titles, IDs or working directories from the DSH conversation catalog. Only metadata is read—no messages are opened or searched. Checking a conversation changes only this draft; new catalog entries are never selected automatically.',
+      pickerSearch: 'Search conversations',
+      pickerSelected: 'Selected conversations ({count})',
+      pickerSelectedEmpty: 'No conversations selected. Choose at least one, or choose Off.',
+      pickerCandidates: 'Available conversations',
+      pickerUntitled: 'Untitled conversation',
+      pickerMissing: 'Not in the current catalog; saved ID retained',
+      pickerOutside: 'Outside the current local corpus; remove this selection or update the corpus',
+      pickerRemove: 'Remove {title} ({id})',
+      remove: 'Remove',
+      pickerLoading: 'Loading conversation metadata…',
+      pickerRefreshing: 'Refreshing conversation metadata; displayed entries may be stale.',
+      pickerUnavailable:
+        'The conversation catalog is unavailable. Existing selections are preserved and can still be removed. Reconnect DSH to load the catalog.',
+      pickerStale:
+        'The conversation catalog could not be refreshed. Displayed metadata may be stale; existing selections are preserved.',
+      pickerEmpty: 'No conversations are available in the current catalog.',
+      pickerNoMatches: 'No conversations match this title, ID or working directory.',
+      pickerCorpusEmpty:
+        'Choose a local corpus first to make conversations available for embedding.',
+      pickerNoCorpusMatches:
+        'No catalog entries belong to the selected local corpus. Saved selections remain listed above.',
+      pickerPage: 'Showing {from}–{to} of {count}',
+      pickerPrevious: 'Previous 50',
+      pickerNext: 'Next 50',
+      pickerMore: 'More results are available. Use the next page or narrow your search.',
       embeddingLegend: '2. Outbound embedding permission',
       embeddingHelp:
         'Independent of local indexing. Semantic search and explicit embedding tools may send allowed conversation text and search queries to the configured embedding provider. This page never starts embedding or semantic search.',
       embeddingMode: 'Conversations allowed for outbound embedding',
       embeddingAll: 'All within the local corpus',
-      embeddingIds: 'Embedding conversation IDs',
+      embeddingIds: 'Choose conversations allowed for embedding',
       embeddingSubset:
         'Selected embedding IDs must also belong to the local corpus. “All within the local corpus” includes future additions to that corpus. With local indexing Off, embedding must also be Off.',
       syncLegend: '3. Local synchronization',
@@ -111,7 +138,7 @@ window.__ModuleLoader__.load({
       invalidIds:
         'Conversation IDs must be one per line, with no embedded whitespace or control characters. Choose All in the selector rather than typing “all”.',
       emptySelected:
-        'A Selected scope needs at least one conversation ID. Choose Off for no permission.',
+        'A Selected scope needs at least one conversation. Choose Off for no permission.',
       invalidSubset:
         'Embedding permission must be within the local corpus. Turn embedding Off or update its selection.',
       invalidNode: 'Node executable must be “node” or an absolute path.',
@@ -145,7 +172,7 @@ window.__ModuleLoader__.load({
       syncSummary: '自动本地索引',
       on: '开启',
       off: '关闭',
-      selectedSummary: '已选 {count} 个会话 ID',
+      selectedSummary: '已选 {count} 个会话',
       allSummary: '全部主会话，包括归档会话和用户分支',
       embeddingAllSummary: '本地语料范围内的全部会话',
       corpusLegend: '1. 本地索引范围',
@@ -154,15 +181,36 @@ window.__ModuleLoader__.load({
       corpusMode: '允许建立本地索引的会话',
       selected: '指定会话',
       all: '全部会话',
-      corpusIds: '本地语料会话 ID',
-      idsHelp:
-        '每行填写一个准确的会话 ID，保存时会去除空行和重复项。授权全部会话请使用选择器，不要填写保留字“all”。',
+      corpusIds: '选择本地语料会话',
+      pickerHelp:
+        '按标题、ID 或工作目录搜索 DSH 会话目录。只读取元数据，不打开或搜索消息内容。勾选只修改当前草稿；目录中新增的会话不会自动选中。',
+      pickerSearch: '搜索会话',
+      pickerSelected: '已选会话（{count}）',
+      pickerSelectedEmpty: '尚未选择会话。请至少选择一个，或切换为关闭。',
+      pickerCandidates: '可选会话',
+      pickerUntitled: '未命名会话',
+      pickerMissing: '当前目录中不可用；保留已保存的 ID',
+      pickerOutside: '不在当前本地语料范围内；请移除此项或修改语料范围',
+      pickerRemove: '移除 {title}（{id}）',
+      remove: '移除',
+      pickerLoading: '正在加载会话元数据…',
+      pickerRefreshing: '正在刷新会话元数据；当前显示的条目可能已过期。',
+      pickerUnavailable: '会话目录暂不可用。已有选择已保留，仍可移除；重新连接 DSH 后可加载目录。',
+      pickerStale: '会话目录刷新失败。当前元数据可能已过期，已有选择已保留。',
+      pickerEmpty: '当前目录中没有可选会话。',
+      pickerNoMatches: '没有标题、ID 或工作目录匹配的会话。',
+      pickerCorpusEmpty: '请先选择本地语料，才能选择允许嵌入的会话。',
+      pickerNoCorpusMatches: '当前会话目录中没有属于指定本地语料的条目。已有选择仍保留在上方。',
+      pickerPage: '显示第 {from}–{to} 项，共 {count} 项',
+      pickerPrevious: '前 50 项',
+      pickerNext: '后 50 项',
+      pickerMore: '还有更多结果，可翻页或缩小搜索范围。',
       embeddingLegend: '2. 嵌入外发权限',
       embeddingHelp:
         '与本地索引独立。语义搜索和显式嵌入工具可能将已授权会话文本及搜索查询发送到所配置的嵌入服务。此页面不会启动嵌入或语义搜索。',
       embeddingMode: '允许向嵌入服务外发的会话',
       embeddingAll: '本地语料范围内的全部会话',
-      embeddingIds: '嵌入会话 ID',
+      embeddingIds: '选择允许嵌入的会话',
       embeddingSubset:
         '指定的嵌入会话必须属于本地语料范围。“范围内全部”也包含以后加入语料的会话。本地索引范围关闭时，嵌入权限也必须关闭。',
       syncLegend: '3. 本地同步',
@@ -210,7 +258,7 @@ window.__ModuleLoader__.load({
       validationHeading: '保存前请修正以下字段：',
       invalidIds:
         '会话 ID 必须每行一个，不得含内部空白或控制字符。请通过选择器选择全部，不要填写“all”。',
-      emptySelected: '指定会话模式至少需要一个会话 ID。不授权任何会话请选关闭。',
+      emptySelected: '指定会话模式至少需要选择一个会话。不授权任何会话请选关闭。',
       invalidSubset: '嵌入权限必须处于本地语料范围内。请关闭嵌入或修改会话选择。',
       invalidNode: 'Node 可执行文件必须是“node”或绝对路径。',
       invalidData: '本地索引数据目录必须是绝对路径。',
@@ -223,6 +271,30 @@ window.__ModuleLoader__.load({
     interface ScopeDraft {
       mode: ScopeMode;
       text: string;
+    }
+    interface CatalogEntry {
+      id: string;
+      title: string;
+      cwd: string;
+    }
+    interface SessionCatalog {
+      entries: readonly CatalogEntry[];
+      state: 'loading' | 'unavailable' | 'ready';
+      refreshing: boolean;
+      stale: boolean;
+    }
+    interface PickerSelection extends CatalogEntry {
+      missing: boolean;
+      allowed: boolean;
+    }
+    interface PickerPage<T> {
+      items: readonly T[];
+      page: number;
+      count: number;
+      from: number;
+      to: number;
+      hasPrevious: boolean;
+      hasMore: boolean;
     }
     interface Configuration {
       nodePath: string;
@@ -350,6 +422,122 @@ window.__ModuleLoader__.load({
     }
     function validIds(ids: readonly string[]): boolean {
       return ids.every((id) => id !== 'all' && !/[\s\u0000-\u001f\u007f]/.test(id));
+    }
+    /** Select only catalog metadata: never request Session bodies or content search. */
+    function sessionCatalog(snapshot: SessionListSnapshot): SessionCatalog {
+      const seen = new Set<string>();
+      const entries: CatalogEntry[] = [];
+      for (const item of snapshot.items) {
+        if (
+          item.origin === 'subagent' ||
+          !item.sessionId ||
+          !validIds([item.sessionId]) ||
+          seen.has(item.sessionId)
+        )
+          continue;
+        seen.add(item.sessionId);
+        entries.push({
+          id: item.sessionId,
+          title: item.title?.trim() ?? '',
+          cwd: item.cwd ?? '',
+        });
+      }
+      const failed = snapshot.state === 'error' || snapshot.error != null;
+      return {
+        entries,
+        state:
+          failed && !entries.length
+            ? 'unavailable'
+            : snapshot.phase === 'ready'
+              ? 'ready'
+              : failed
+                ? 'unavailable'
+                : 'loading',
+        refreshing: snapshot.phase === 'ready' && snapshot.state === 'loading',
+        stale: failed,
+      };
+    }
+    function sameCatalog(a: SessionCatalog, b: SessionCatalog): boolean {
+      return (
+        a.state === b.state &&
+        a.refreshing === b.refreshing &&
+        a.stale === b.stale &&
+        a.entries.length === b.entries.length &&
+        a.entries.every((entry, index) => {
+          const other = b.entries[index];
+          return other?.id === entry.id && other.title === entry.title && other.cwd === entry.cwd;
+        })
+      );
+    }
+    function pickerEntries(
+      entries: readonly CatalogEntry[],
+      corpus?: ScopeDraft,
+    ): readonly CatalogEntry[] {
+      if (!corpus || corpus.mode === 'all') return entries;
+      if (corpus.mode === 'off') return [];
+      const allowed = new Set(lines(corpus.text));
+      return entries.filter((entry) => allowed.has(entry.id));
+    }
+    function pickerSelections(
+      scope: ScopeDraft,
+      entries: readonly CatalogEntry[],
+      corpus?: ScopeDraft,
+    ): PickerSelection[] {
+      if (scope.mode !== 'selected') return [];
+      const metadata = new Map(entries.map((entry) => [entry.id, entry]));
+      const allowed = corpus?.mode === 'selected' ? new Set(lines(corpus.text)) : null;
+      return lines(scope.text).map((id) => ({
+        ...(metadata.get(id) ?? { id, title: '', cwd: '' }),
+        missing: !metadata.has(id),
+        allowed: !corpus || corpus.mode === 'all' || (allowed?.has(id) ?? false),
+      }));
+    }
+    function searchEntries<T extends CatalogEntry>(
+      entries: readonly T[],
+      query: string,
+    ): readonly T[] {
+      const terms = query.trim().toLowerCase().split(/\s+/u).filter(Boolean);
+      if (!terms.length) return entries;
+      return entries.filter((entry) => {
+        const text = `${entry.title}\n${entry.id}\n${entry.cwd}`.toLowerCase();
+        return terms.every((term) => text.includes(term));
+      });
+    }
+    /** Both candidate and selected lists use fixed-size pages, even for large corpora. */
+    function pickerPage<T>(items: readonly T[], requestedPage: number): PickerPage<T> {
+      const size = 50;
+      const last = Math.max(0, Math.ceil(items.length / size) - 1);
+      const page = Math.min(
+        last,
+        Math.max(0, Number.isFinite(requestedPage) ? Math.floor(requestedPage) : 0),
+      );
+      const start = page * size;
+      return {
+        items: items.slice(start, start + size),
+        page,
+        count: items.length,
+        from: items.length ? start + 1 : 0,
+        to: Math.min(start + size, items.length),
+        hasPrevious: page > 0,
+        hasMore: page < last,
+      };
+    }
+    function toggleSelection(
+      scope: ScopeDraft,
+      id: string,
+      checked: boolean,
+      available: readonly CatalogEntry[],
+    ): ScopeDraft {
+      if (scope.mode !== 'selected') return scope;
+      // Only visible, corpus-eligible metadata can add a grant; unavailable saved IDs can be removed.
+      if (checked && (!id || !validIds([id]) || !available.some((entry) => entry.id === id)))
+        return scope;
+      const ids = lines(scope.text);
+      if (checked === ids.includes(id)) return scope;
+      return {
+        ...scope,
+        text: (checked ? [...ids, id] : ids.filter((item) => item !== id)).join('\n'),
+      };
     }
     function absolutePath(value: string): boolean {
       return (
@@ -497,6 +685,16 @@ window.__ModuleLoader__.load({
 .dsh-chat-recall dd{margin:0}
 .dsh-chat-recall details{margin:20px 0;padding:14px 0;border-top:.5px solid var(--dsw-alias-border-l2);border-bottom:.5px solid var(--dsw-alias-border-l2)}
 .dsh-chat-recall summary{cursor:pointer;font-weight:600}
+.dsh-chat-recall .cr-picker{min-width:0;margin:14px 0}
+.dsh-chat-recall .cr-picker-list{list-style:none;margin:8px 0;padding:0;border:.5px solid var(--dsw-alias-border-l2);border-radius:8px;max-height:360px;overflow:auto}
+.dsh-chat-recall .cr-picker-list li+li{border-top:.5px solid var(--dsw-alias-border-l2)}
+.dsh-chat-recall .cr-picker-list .cr-checkbox{margin:0;padding:10px 12px}
+.dsh-chat-recall .cr-picker-text{display:flex;flex:1;min-width:0;flex-direction:column;gap:2px}
+.dsh-chat-recall .cr-picker-text code{font-size:12px}
+.dsh-chat-recall .cr-picker-selected{display:flex;align-items:flex-start;gap:10px;padding:10px 12px}
+.dsh-chat-recall .cr-picker-selected button{flex:none}
+.dsh-chat-recall .cr-picker-pagination{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:8px 0}
+.dsh-chat-recall .cr-picker-pagination span{flex:1;min-width:140px}
 @media(max-width:480px){.dsh-chat-recall{padding:12px}.dsh-chat-recall fieldset,.dsh-chat-recall .cr-summary{padding:12px}.dsh-chat-recall dl{grid-template-columns:1fr;gap:4px}.dsh-chat-recall dd{margin-bottom:8px}.dsh-chat-recall .cr-actions button{width:100%}}
 `;
 
@@ -567,12 +765,231 @@ window.__ModuleLoader__.load({
           );
         }
 
+        function SessionPicker({
+          name,
+          value,
+          corpus,
+          catalog,
+          disabled,
+          onToggle,
+        }: {
+          name: 'corpus' | 'embedding';
+          value: ScopeDraft;
+          corpus?: ScopeDraft;
+          catalog: SessionCatalog;
+          disabled: boolean;
+          onToggle: (id: string, checked: boolean) => void;
+        }): ReactNode {
+          const id = React.useId();
+          const [query, setQuery] = React.useState('');
+          const [candidatePage, setCandidatePage] = React.useState(0);
+          const [selectedPage, setSelectedPage] = React.useState(0);
+          const available = React.useMemo(
+            () => pickerEntries(catalog.entries, corpus),
+            [catalog.entries, corpus],
+          );
+          const selected = React.useMemo(
+            () => pickerSelections(value, catalog.entries, corpus),
+            [value, catalog.entries, corpus],
+          );
+          const selectedIds = React.useMemo(() => new Set(lines(value.text)), [value.text]);
+          const matches = React.useMemo(() => searchEntries(available, query), [available, query]);
+          const selectedMatches = React.useMemo(
+            () => searchEntries(selected, query),
+            [selected, query],
+          );
+          const candidates = pickerPage(matches, candidatePage);
+          const selections = pickerPage(selectedMatches, selectedPage);
+          const pagination = (
+            page: PickerPage<unknown>,
+            setPage: (page: number) => void,
+          ): ReactNode =>
+            page.count
+              ? h(
+                  'div',
+                  { className: 'cr-picker-pagination' },
+                  h(
+                    'span',
+                    { className: 'cr-muted' },
+                    t('pickerPage', {
+                      from: page.from,
+                      to: page.to,
+                      count: page.count,
+                    }),
+                  ),
+                  page.count > 50
+                    ? [
+                        h(
+                          'button',
+                          {
+                            key: 'previous',
+                            type: 'button',
+                            disabled: disabled || !page.hasPrevious,
+                            onClick: () => setPage(page.page - 1),
+                          },
+                          t('pickerPrevious'),
+                        ),
+                        h(
+                          'button',
+                          {
+                            key: 'next',
+                            type: 'button',
+                            disabled: disabled || !page.hasMore,
+                            onClick: () => setPage(page.page + 1),
+                          },
+                          t('pickerNext'),
+                        ),
+                      ]
+                    : null,
+                )
+              : null;
+          const metadata = (entry: CatalogEntry): ReactNode =>
+            h(
+              'span',
+              { className: 'cr-picker-text' },
+              h('span', null, entry.title || t('pickerUntitled')),
+              h('code', { className: 'cr-muted' }, entry.id),
+              entry.cwd ? h('span', { className: 'cr-muted' }, entry.cwd) : null,
+            );
+          const candidateMessage: TextKey | null = candidates.count
+            ? null
+            : catalog.state === 'loading'
+              ? 'pickerLoading'
+              : catalog.state === 'unavailable'
+                ? 'pickerUnavailable'
+                : corpus?.mode === 'off' ||
+                    (corpus?.mode === 'selected' && !lines(corpus.text).length)
+                  ? 'pickerCorpusEmpty'
+                  : query.trim()
+                    ? 'pickerNoMatches'
+                    : corpus?.mode === 'selected'
+                      ? 'pickerNoCorpusMatches'
+                      : 'pickerEmpty';
+          return h(
+            'div',
+            {
+              className: 'cr-picker',
+              role: 'group',
+              'aria-label': t(name === 'embedding' ? 'embeddingIds' : 'corpusIds'),
+            },
+            h(
+              'div',
+              { className: 'cr-field' },
+              h('label', { htmlFor: `${id}-search` }, t('pickerSearch')),
+              h('input', {
+                id: `${id}-search`,
+                type: 'search',
+                value: query,
+                disabled,
+                autoComplete: 'off',
+                spellCheck: false,
+                'aria-describedby': `${id}-help`,
+                onChange: (event: ChangeEvent) => {
+                  setQuery(event.currentTarget.value);
+                  setCandidatePage(0);
+                  setSelectedPage(0);
+                },
+              }),
+              h('span', { id: `${id}-help`, className: 'cr-muted' }, t('pickerHelp')),
+            ),
+            h('h3', null, t('pickerSelected', { count: selected.length })),
+            selections.count
+              ? h(
+                  'ul',
+                  {
+                    className: 'cr-picker-list',
+                    'aria-label': t('pickerSelected', { count: selected.length }),
+                  },
+                  ...selections.items.map((entry) =>
+                    h(
+                      'li',
+                      { key: entry.id, className: 'cr-picker-selected' },
+                      h(
+                        'span',
+                        { className: 'cr-picker-text' },
+                        metadata(entry),
+                        entry.missing
+                          ? h('span', { className: 'cr-muted' }, t('pickerMissing'))
+                          : null,
+                        !entry.allowed
+                          ? h('span', { className: 'cr-muted' }, t('pickerOutside'))
+                          : null,
+                      ),
+                      h(
+                        'button',
+                        {
+                          type: 'button',
+                          disabled,
+                          'aria-label': t('pickerRemove', {
+                            title: entry.title || t('pickerUntitled'),
+                            id: entry.id,
+                          }),
+                          onClick: () => onToggle(entry.id, false),
+                        },
+                        t('remove'),
+                      ),
+                    ),
+                  ),
+                )
+              : h(
+                  'p',
+                  { className: 'cr-muted' },
+                  t(selected.length ? 'pickerNoMatches' : 'pickerSelectedEmpty'),
+                ),
+            pagination(selections, setSelectedPage),
+            h('h3', null, t('pickerCandidates')),
+            catalog.state === 'loading' || catalog.state === 'unavailable'
+              ? h(
+                  'p',
+                  { className: 'cr-muted', role: 'status' },
+                  t(catalog.state === 'loading' ? 'pickerLoading' : 'pickerUnavailable'),
+                )
+              : catalog.stale
+                ? h('p', { className: 'cr-muted', role: 'status' }, t('pickerStale'))
+                : catalog.refreshing
+                  ? h('p', { className: 'cr-muted', role: 'status' }, t('pickerRefreshing'))
+                  : null,
+            candidates.count
+              ? h(
+                  'ul',
+                  { className: 'cr-picker-list', 'aria-label': t('pickerCandidates') },
+                  ...candidates.items.map((entry) =>
+                    h(
+                      'li',
+                      { key: entry.id },
+                      h(
+                        'label',
+                        { className: 'cr-checkbox' },
+                        h('input', {
+                          type: 'checkbox',
+                          disabled,
+                          checked: selectedIds.has(entry.id),
+                          onChange: (event: ChangeEvent) =>
+                            onToggle(entry.id, event.currentTarget.checked),
+                        }),
+                        metadata(entry),
+                      ),
+                    ),
+                  ),
+                )
+              : candidateMessage &&
+                  candidateMessage !== 'pickerLoading' &&
+                  candidateMessage !== 'pickerUnavailable'
+                ? h('p', { className: 'cr-muted', role: 'status' }, t(candidateMessage))
+                : null,
+            pagination(candidates, setCandidatePage),
+            candidates.hasMore ? h('p', { className: 'cr-muted' }, t('pickerMore')) : null,
+          );
+        }
+
         function Editor({
           entryId,
           describe,
+          catalog,
         }: {
           entryId: string;
           describe: DescribeSnapshot;
+          catalog: SessionCatalog;
         }): ReactNode {
           useSnapshot(ctx.locale);
           const form: ConfigForm = React.useMemo(() => ctx.configForms.get(entryId), [entryId]);
@@ -776,14 +1193,23 @@ window.__ModuleLoader__.load({
                 ),
               ),
               value.mode === 'selected'
-                ? field(
-                    `${name}-ids`,
-                    embedding ? 'embeddingIds' : 'corpusIds',
-                    'idsHelp',
-                    value.text,
-                    (text) => change((draft) => ({ ...draft, [name]: { ...draft[name], text } })),
-                    true,
-                  )
+                ? h(SessionPicker, {
+                    name,
+                    value,
+                    ...(embedding ? { corpus: state.draft.corpus } : {}),
+                    catalog,
+                    disabled: locked,
+                    onToggle: (sessionId: string, selected: boolean) =>
+                      change((draft) => ({
+                        ...draft,
+                        [name]: toggleSelection(
+                          draft[name],
+                          sessionId,
+                          selected,
+                          pickerEntries(catalog.entries, embedding ? draft.corpus : undefined),
+                        ),
+                      })),
+                  })
                 : null,
               embedding ? h('p', { className: 'cr-muted' }, t('embeddingSubset')) : null,
             );
@@ -968,8 +1394,10 @@ window.__ModuleLoader__.load({
           );
         }
 
-        function SettingsPage(): ReactNode {
+        function SettingsPage({ useSessions }: SettingsSectionProps): ReactNode {
           useSnapshot(ctx.locale);
+          // The Slot owns this metadata subscription; selecting titles never retains a Session.
+          const catalog = useSessions(sessionCatalog, sameCatalog);
           const describe = useSnapshot(mirror);
           const [entryId, setEntryId] = React.useState<string | null>(null);
           const namespaces =
@@ -996,7 +1424,7 @@ window.__ModuleLoader__.load({
               ? h('p', { className: 'cr-notice', role: 'alert' }, t('readFailed'))
               : null,
             entryId !== null
-              ? h(Editor, { entryId, describe })
+              ? h(Editor, { entryId, describe, catalog })
               : h(
                   'div',
                   null,

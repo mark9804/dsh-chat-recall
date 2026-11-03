@@ -137,3 +137,5 @@ dist
 
 # Local recall experiments and generated attachments
 .spike/
+.benchmark/
+.DS_Store
