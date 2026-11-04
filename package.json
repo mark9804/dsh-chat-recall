@@ -1,6 +1,6 @@
 {
   "name": "dsh-chat-recall",
-  "version": "0.4.0",
+  "version": "0.4.3",
   "private": true,
   "type": "module",
   "description": "Original conversation recall with exact, keyword and semantic search, incremental indexing and verified source pagination",
@@ -31,12 +31,7 @@
     "licenses/",
     "icon.png",
     "icon.svg",
-    "README.md",
-    "docs/production.md",
-    "docs/settings.md",
-    "docs/production-validation.md",
-    "docs/development.md",
-    "docs/cleanup.md"
+    "README.md"
   ],
   "dsh": {
     "bundle": {

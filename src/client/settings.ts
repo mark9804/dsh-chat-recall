@@ -427,34 +427,38 @@ window.__ModuleLoader__.load({
     function sessionCatalog(snapshot: SessionListSnapshot): SessionCatalog {
       const seen = new Set<string>();
       const entries: CatalogEntry[] = [];
-      for (const item of snapshot.items) {
-        if (
-          item.origin === 'subagent' ||
-          !item.sessionId ||
-          !validIds([item.sessionId]) ||
-          seen.has(item.sessionId)
-        )
-          continue;
-        seen.add(item.sessionId);
+      // Guard the integration boundary, not only an empty list: an unsupported
+      // snapshot must leave configuration visible, never crash the whole Slot.
+      if (
+        !snapshot ||
+        !Array.isArray(snapshot.ids) ||
+        !snapshot.byId ||
+        typeof snapshot.byId !== 'object' ||
+        Array.isArray(snapshot.byId)
+      )
+        return { entries, state: 'unavailable', refreshing: false, stale: false };
+      for (const id of snapshot.ids) {
+        if (typeof id !== 'string' || !id || !validIds([id]) || seen.has(id)) continue;
+        const item = Object.hasOwn(snapshot.byId, id) ? snapshot.byId[id] : undefined;
+        if (!item || item.origin === 'subagent' || item.id !== id) continue;
+        seen.add(id);
         entries.push({
-          id: item.sessionId,
-          title: item.title?.trim() ?? '',
-          cwd: item.cwd ?? '',
+          id,
+          title:
+            typeof item.title === 'string' && item.title.trim()
+              ? item.title.trim()
+              : typeof item.displayTitle === 'string'
+                ? item.displayTitle.trim()
+                : '',
+          cwd: typeof item.cwd === 'string' ? item.cwd : '',
         });
       }
-      const failed = snapshot.state === 'error' || snapshot.error != null;
+      // The public source exposes only arrival phase, not refresh/error status.
       return {
         entries,
-        state:
-          failed && !entries.length
-            ? 'unavailable'
-            : snapshot.phase === 'ready'
-              ? 'ready'
-              : failed
-                ? 'unavailable'
-                : 'loading',
-        refreshing: snapshot.phase === 'ready' && snapshot.state === 'loading',
-        stale: failed,
+        state: snapshot.phase === 'ready' ? 'ready' : 'loading',
+        refreshing: false,
+        stale: false,
       };
     }
     function sameCatalog(a: SessionCatalog, b: SessionCatalog): boolean {

@@ -10,6 +10,7 @@ import type { Chunk } from '../core/chunking.js';
 import { chooseCandidates } from '../core/candidates.js';
 import type { CandidatePolicy, CandidatePresentation } from '../core/candidates.js';
 import { SearchPages } from '../core/cursors.js';
+import { timed, startTiming } from '../shared/timing.js';
 import type {
   SessionRow,
   VisibleBlock,
@@ -509,6 +510,26 @@ export async function openStore({
     if (!indices.some((index) => index.columns?.includes(column)))
       await target.createIndex(column, { config });
   }
+  async function maintainProgressIndex(): Promise<void> {
+    const finish = startTiming('store.progress-index');
+    try {
+      const index = (await progress.listIndices()).find(
+        (item) =>
+          item.indexType === 'BTree' && item.columns.length === 1 && item.columns[0] === 'id',
+      );
+      const stats = index && (await progress.indexStats(index.name));
+      if (stats && stats.numUnindexedRows === 0) return;
+      // Build against committed rows, not an empty table that later writes bypass.
+      if (!(await progress.countRows())) return;
+      await progress.createIndex('id', { config: lance.Index.btree(), replace: true });
+    } catch {
+      // This is acceleration only: LanceDB still scans uncovered rows. Keep remote
+      // commits intact and retry before the next pending read (also after reopen).
+      // Do not use optimize here: it can compact and remove old files.
+    } finally {
+      finish();
+    }
+  }
   async function checkpoint(sessionId: string): Promise<SessionRow | undefined> {
     return (
       await rowsOf<SessionRow>(
@@ -829,32 +850,38 @@ export async function openStore({
     visit?: (row: PendingMetadata) => void | Promise<void>,
     where = inList('sessionId', sessionIds),
   ): Promise<PendingState> {
-    // Only small metadata batches are retained; a block's original text is loaded on demand.
-    const query = blocks.query().select(['id', 'sessionId', 'textHash']).where(where);
-    let pending = 0,
-      completedChunks = 0;
-    for await (const arrowBatch of query) {
-      const metadata = await rowsOf<PendingMetadata>(arrowBatch);
-      for (let offset = 0; offset < metadata.length; offset += 128) {
-        const group = metadata.slice(offset, offset + 128);
-        const completed = await lookup<ProgressRow, 'id'>(progress, 'id', group.map(progressId));
-        for (const row of group) {
-          const done = completed.get(progressId(row));
-          if (
-            done &&
-            done.spaceId === (space?.spaceId ?? embedder?.spaceId ?? done.spaceId) &&
-            done.chunkingVersion === CHUNKING_VERSION &&
-            done.textHash === row.textHash
-          ) {
-            completedChunks += done.chunks;
-          } else {
-            pending++;
-            await visit?.(row);
+    const finish = startTiming('store.pending');
+    try {
+      await maintainProgressIndex();
+      // Only small metadata batches are retained; a block's original text is loaded on demand.
+      const query = blocks.query().select(['id', 'sessionId', 'textHash']).where(where);
+      let pending = 0,
+        completedChunks = 0;
+      for await (const arrowBatch of query) {
+        const metadata = await rowsOf<PendingMetadata>(arrowBatch);
+        for (let offset = 0; offset < metadata.length; offset += 128) {
+          const group = metadata.slice(offset, offset + 128);
+          const completed = await lookup<ProgressRow, 'id'>(progress, 'id', group.map(progressId));
+          for (const row of group) {
+            const done = completed.get(progressId(row));
+            if (
+              done &&
+              done.spaceId === (space?.spaceId ?? embedder?.spaceId ?? done.spaceId) &&
+              done.chunkingVersion === CHUNKING_VERSION &&
+              done.textHash === row.textHash
+            ) {
+              completedChunks += done.chunks;
+            } else {
+              pending++;
+              await visit?.(row);
+            }
           }
         }
       }
+      return { pending, completedChunks };
+    } finally {
+      finish();
     }
-    return { pending, completedChunks };
   }
   async function ensureVectors(dimensions: number, configured: Embedder): Promise<Table> {
     if (space) requireThat(space.dimensions === dimensions, 'EMBEDDING_CONFIG_CHANGED');
@@ -963,6 +990,8 @@ export async function openStore({
       }
     });
     await flush();
+    // Rebuild once after the whole successful operation, never per remote batch.
+    await maintainProgressIndex();
     reused += state.completedChunks;
     return {
       new: added,
@@ -1081,7 +1110,7 @@ export async function openStore({
   }
   async function semantic(params: SearchRequest): Promise<CandidateResult> {
     const configured = embeddingReady();
-    const blockCount = await blocks.countRows(scopeWhere(params));
+    const blockCount = await timed('store.scope', () => blocks.countRows(scopeWhere(params)));
     if (!blockCount)
       return {
         hits: [],
@@ -1096,12 +1125,14 @@ export async function openStore({
       };
     requireThat(space && vectors, 'EMBEDDING_NOT_READY');
     const where = `${scopeWhere(params)} AND spaceId = ${sql(space.spaceId)} AND chunkingVersion = ${sql(CHUNKING_VERSION)}`;
-    const scopeChunks = await vectors.countRows(where);
+    const vectorTable = vectors;
+    const scopeChunks = await timed('store.scope', () => vectorTable.countRows(where));
     requireThat(scopeChunks > 0, 'EMBEDDING_NOT_READY');
-    const result = await configured.embed([params.query]);
+    const result = await timed('store.query-embedding', () => configured.embed([params.query]));
     vectorsValid(result, 1, space.dimensions);
     const queryVector = result[0];
     const flat = scopeChunks <= FLAT_MAX;
+    const finishIndex = startTiming('store.vector-index');
     if (!flat) {
       await ensureIndex(
         vectors,
@@ -1112,6 +1143,8 @@ export async function openStore({
         }),
       );
     }
+    finishIndex();
+    const finishFetch = startTiming('store.vector-fetch');
     let selected: VectorRow[];
     if (flat) selected = await rowsOf<VectorRow>(vectors.query().where(where).limit(FLAT_MAX));
     else
@@ -1123,6 +1156,8 @@ export async function openStore({
           .nprobes(32)
           .limit(CAP),
       ); // LanceDB vector search prefilters by default.
+    finishFetch();
+    const finishRerank = startTiming('store.rerank');
     const best = new Map<string, RankedVector>();
     for (const row of selected) {
       const hit: RankedVector = { ...row, similarity: cosine(queryVector, Array.from(row.vector)) };
@@ -1135,13 +1170,14 @@ export async function openStore({
         best.set(row.dedupKey, hit);
     }
     const ranked = [...best.values()].sort((a, b) => b.similarity - a.similarity || stable(a, b));
+    finishRerank();
     const hits: SearchHit[] = [];
     // Materialize only ranked candidates, in bounded batches rather than an N+1
     // database query per hit. Keep the ranking and source-hash verification intact.
     const candidates = ranked.slice(0, CAP);
-    const candidateBlocks = await lookup<IndexedBlock, 'id'>(blocks, 'id', [
-      ...new Set(candidates.map((row) => row.blockId)),
-    ]);
+    const candidateBlocks = await timed('store.source-lookup', () =>
+      lookup<IndexedBlock, 'id'>(blocks, 'id', [...new Set(candidates.map((row) => row.blockId))]),
+    );
     for (const row of candidates) {
       const block = candidateBlocks.get(row.blockId);
       if (block && block.textHash === row.textHash)
@@ -1175,13 +1211,15 @@ export async function openStore({
       mode: params.mode,
       limit: params.limit,
     });
-    return pages.create({
-      binding: params.binding,
-      hits: result.hits,
-      pageSize: Math.max(1, presentation.count),
-      presentation,
-      meta: { coverage: result.coverage, candidateTruncated: result.candidateTruncated },
-    });
+    return timed('store.snapshot', () =>
+      pages.create({
+        binding: params.binding,
+        hits: result.hits,
+        pageSize: Math.max(1, presentation.count),
+        presentation,
+        meta: { coverage: result.coverage, candidateTruncated: result.candidateTruncated },
+      }),
+    );
   }
   async function read({
     ref,

@@ -5,6 +5,8 @@ import { openStore } from '../storage/store.js';
 import type { RecallStore } from '../storage/store.js';
 import type { WorkerRequest } from '../shared/protocol.js';
 import { errorCode } from '../shared/model.js';
+import { captureTiming, recordTiming } from '../shared/timing.js';
+import type { TimingReport } from '../shared/timing.js';
 
 const root = resolve(process.argv[2]);
 let store: RecallStore | undefined;
@@ -53,56 +55,82 @@ await send({
   lancedb: '0.41.0',
 });
 try {
+  // Timestamp complete input lines before serial dispatch, so queue residence
+  // is measured without comparing Host/worker performance clock origins.
+  const lines = createInterface({ input: process.stdin, crlfDelay: Infinity });
+  const arrivals: number[] = [];
+  lines.on('line', () => arrivals.push(performance.now()));
   // Serialize every store operation; the JSONL bridge has no implicit replay.
-  for await (const line of createInterface({ input: process.stdin, crlfDelay: Infinity })) {
+  for await (const line of lines) {
+    const receivedAt = arrivals.shift() ?? performance.now();
     let request: WorkerRequest | undefined;
+    let timing: TimingReport | undefined;
     try {
       request = JSON.parse(line) as WorkerRequest;
-      let value: unknown;
-      if (request.method === 'configure') {
-        if (store) throw Object.assign(new Error('Configured'), { code: 'INVALID_REQUEST' });
-        const params: Partial<Extract<WorkerRequest, { method: 'configure' }>['params']> =
-          request.params ?? {};
-        store = await openStore({
-          root,
-          embedder: params.embeddingEnabled ? embedding() : undefined,
-          candidatePolicy: params.candidatePolicy,
-        });
-        value = { configured: true };
-      } else {
-        if (!store) throw Object.assign(new Error('Not configured'), { code: 'NOT_PREPARED' });
-        switch (request.method) {
-          case 'sync':
-            value = await store.sync(request.params ?? {});
-            break;
-          case 'checkpoints':
-            value = await store.checkpoints(request.params ?? {});
-            break;
-          case 'embed':
-            value = await store.embed(request.params ?? {});
-            break;
-          case 'search':
-            value = await store.search(request.params ?? {});
-            break;
-          case 'read':
-            value = await store.read(request.params ?? {});
-            break;
-          case 'sessions':
-            value = await store.sessions(request.params ?? {});
-            break;
-          case 'status':
-            value = await store.status();
-            break;
-          default:
-            throw Object.assign(new Error('Unknown method'), { code: 'INVALID_REQUEST' });
+      const current = request;
+      const dispatch = async () => {
+        let value: unknown;
+        if (current.method === 'configure') {
+          if (store) throw Object.assign(new Error('Configured'), { code: 'INVALID_REQUEST' });
+          const params: Partial<Extract<WorkerRequest, { method: 'configure' }>['params']> =
+            current.params ?? {};
+          store = await openStore({
+            root,
+            embedder: params.embeddingEnabled ? embedding() : undefined,
+            candidatePolicy: params.candidatePolicy,
+          });
+          value = { configured: true };
+        } else {
+          if (!store) throw Object.assign(new Error('Not configured'), { code: 'NOT_PREPARED' });
+          switch (current.method) {
+            case 'sync':
+              value = await store.sync(current.params ?? {});
+              break;
+            case 'checkpoints':
+              value = await store.checkpoints(current.params ?? {});
+              break;
+            case 'embed':
+              value = await store.embed(current.params ?? {});
+              break;
+            case 'search':
+              value = await store.search(current.params ?? {});
+              break;
+            case 'read':
+              value = await store.read(current.params ?? {});
+              break;
+            case 'sessions':
+              value = await store.sessions(current.params ?? {});
+              break;
+            case 'status':
+              value = await store.status();
+              break;
+            default:
+              throw Object.assign(new Error('Unknown method'), { code: 'INVALID_REQUEST' });
+          }
         }
-      }
-      await send({ id: request.id, ok: true, value });
+        return value;
+      };
+      const value =
+        current.diagnostics === true
+          ? (
+              await captureTiming(
+                async () => {
+                  recordTiming('worker.queue', Math.max(0, performance.now() - receivedAt));
+                  return dispatch();
+                },
+                (report) => {
+                  timing = report;
+                },
+              )
+            ).value
+          : await dispatch();
+      await send({ id: request.id, ok: true, value, ...(timing ? { timing } : {}) });
     } catch (error) {
       const code = errorCode(error, 'WORKER_ERROR');
       await send({
         id: request?.id ?? null,
         ok: false,
+        ...(timing ? { timing } : {}),
         error: {
           code: errors.has(code) ? code : 'WORKER_ERROR',
           message: 'Chat recall operation failed.',

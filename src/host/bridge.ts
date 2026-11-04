@@ -1,6 +1,7 @@
 import { StringDecoder } from 'node:string_decoder';
 import type { SubprocessHandle, SubprocessService } from './contracts.js';
 import { errorCode } from '../shared/model.js';
+import { mergeTiming, parseTiming, recordTiming, timingEnabled } from '../shared/timing.js';
 
 export interface BridgeOptions {
   subprocess: SubprocessService;
@@ -37,6 +38,10 @@ interface PendingRequest {
   run: WorkerRun | null;
   timer: NodeJS.Timeout | null;
   onAbort: (() => void) | null;
+  diagnostics?: boolean;
+  writeAt?: number;
+  readyMs?: number;
+  workerTiming?: unknown;
 }
 interface WorkerRun {
   ready: Deferred<void>;
@@ -197,7 +202,7 @@ export class WorkerBridge {
         throw failure('INVALID_REQUEST');
       }
       this.#nextId++;
-      payload = `${JSON.stringify({ id, method, params })}\n`;
+      payload = `${JSON.stringify({ id, method, params, ...(timingEnabled() ? { diagnostics: true } : {}) })}\n`;
     } catch {
       return Promise.reject(failure('INVALID_REQUEST'));
     }
@@ -213,6 +218,7 @@ export class WorkerBridge {
       run: null,
       timer: null,
       onAbort: null,
+      ...(timingEnabled() ? { diagnostics: true } : {}),
     };
     this.#requests.set(id, request);
     request.onAbort = () => this.#cancel(request, 'ABORT_ERR');
@@ -224,7 +230,21 @@ export class WorkerBridge {
     // Recheck after listener registration. An already-cancelled request must not spawn.
     if (signal?.aborted) request.onAbort();
     void this.#dispatch(request);
-    return result.promise;
+    if (!request.diagnostics) return result.promise;
+    return result.promise.finally(() => {
+      if (request.readyMs !== undefined) recordTiming('bridge.wait-ready', request.readyMs);
+      const roundtrip =
+        request.writeAt === undefined ? undefined : performance.now() - request.writeAt;
+      if (roundtrip !== undefined) recordTiming('bridge.roundtrip', roundtrip);
+      const worker = parseTiming(request.workerTiming);
+      if (worker) {
+        mergeTiming(worker);
+        recordTiming('worker.total', worker.totalMs);
+        const queued = worker.spans.find((span) => span.name === 'worker.queue')?.ms ?? 0;
+        if (roundtrip !== undefined)
+          recordTiming('bridge.residual', Math.max(0, roundtrip - worker.totalMs - queued));
+      }
+    });
   }
 
   close(): Promise<void> {
@@ -287,8 +307,11 @@ export class WorkerBridge {
         }
         request.run = run;
         run.requests.add(request);
+        const readyStart = request.diagnostics ? performance.now() : 0;
         await run.ready.promise;
+        if (request.diagnostics) request.readyMs = performance.now() - readyStart;
         if (!this.#requests.has(request.id) || run.stopping || this.#closed) return;
+        if (request.diagnostics) request.writeAt = performance.now();
         run.handle!.stdin.write(request.payload, (error) => {
           if (error) this.#stop(run, failure('WORKER_IO_FAILED'));
         });
@@ -416,6 +439,7 @@ export class WorkerBridge {
     ) {
       throw failure('WORKER_PROTOCOL_ERROR');
     }
+    if (request.diagnostics) request.workerTiming = message.timing;
     if (message.ok) this.#settle(request!, null, message.value);
     else {
       // An arbitrary uppercase string could still be a secret: retain only known codes.

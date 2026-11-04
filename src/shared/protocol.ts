@@ -1,4 +1,5 @@
 import type { CandidatePolicy } from '../core/candidates.js';
+import type { TimingReport } from './timing.js';
 import type {
   RecallStore,
   CheckpointsRequest,
@@ -27,11 +28,16 @@ export type Result<M extends Method> = M extends 'configure'
     ? Awaited<ReturnType<RecallStore[M]>>
     : never;
 export type WorkerRequest = {
-  [M in Method]: { id: number; method: M; params: Params<M> };
+  [M in Method]: { id: number; method: M; params: Params<M>; diagnostics?: boolean };
 }[Method];
 export type WorkerResponse =
-  | { id: number | null; ok: true; value: unknown }
-  | { id: number | null; ok: false; error: { code: string; message: string } };
+  | { id: number | null; ok: true; value: unknown; timing?: TimingReport }
+  | {
+      id: number | null;
+      ok: false;
+      error: { code: string; message: string };
+      timing?: TimingReport;
+    };
 export type WorkerCall = <M extends Method>(
   method: M,
   params: Params<M>,

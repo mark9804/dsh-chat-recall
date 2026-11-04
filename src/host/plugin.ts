@@ -35,6 +35,8 @@ import type { SearchResult, SessionsResult } from '../storage/store.js';
 import type { VisibleBlock, SessionRow } from '../shared/model.js';
 import { errorCode } from '../shared/model.js';
 import { messageOf } from '../shared/session-text.js';
+import { captureTiming, timed } from '../shared/timing.js';
+import type { TimingReport } from '../shared/timing.js';
 
 export const name = 'dsh-chat-recall';
 export const inject = ['tools', 'subprocess', 'sessionQuery', 'sessions'];
@@ -120,7 +122,15 @@ export function apply(ctx: HostContext, config: SettingsConfig): void {
   });
 }
 
-export function applyRuntime(ctx: HostContext, config: PluginConfig): () => Promise<void> {
+export interface RuntimeDiagnostics {
+  onTiming(record: { tool: string; ok: boolean; timing: TimingReport }): void;
+}
+/** Diagnostics are an explicit local runtime option, not a model-facing tool grant. */
+export function applyRuntime(
+  ctx: HostContext,
+  config: PluginConfig,
+  diagnostics?: RuntimeDiagnostics,
+): () => Promise<void> {
   if (!isAbsolute(config.dataPath) || (config.envFile && !isAbsolute(config.envFile)))
     throw new Error('Recall paths must be absolute.');
   const lifetime = new AbortController();
@@ -291,9 +301,23 @@ export function applyRuntime(ctx: HostContext, config: PluginConfig): () => Prom
         if (closing) fail('CLOSED');
         authorize(exec);
         const current = { ...exec, signal: AbortSignal.any([exec.signal, lifetime.signal]) };
-        await initialization;
-        if (closing) fail('CLOSED');
-        return execute(args as A, current);
+        const run = async () => {
+          await timed('host.initialize', () => initialization);
+          if (closing) fail('CLOSED');
+          return execute(args as A, current);
+        };
+        if (!diagnostics) return run();
+        let ok = false;
+        return (
+          await captureTiming(
+            async () => {
+              const value = await run();
+              ok = true;
+              return value;
+            },
+            (timing) => diagnostics.onTiming({ tool: name, ok, timing }),
+          )
+        ).value;
       },
     });
   }
@@ -335,7 +359,9 @@ export function applyRuntime(ctx: HostContext, config: PluginConfig): () => Prom
         if (value.expires < Date.now()) searchScopes.delete(key);
       const scopeId = continuation?.scopeId ?? randomUUID();
       if (continuation && !searchScopes.has(scopeId)) fail('CURSOR_EXPIRED');
-      const ids = continuation ? searchScopes.get(scopeId)!.ids : await scope(args, exec);
+      const ids = continuation
+        ? searchScopes.get(scopeId)!.ids
+        : await timed('host.scope', () => scope(args, exec));
       if (!ids.every((id) => syncer.allowed(id))) fail('OUT_OF_SCOPE');
       const wrap = (result: SearchResult): SearchResult => {
         if (!result.nextCursor) return { ...result, nextCursor: null };
@@ -362,14 +388,19 @@ export function applyRuntime(ctx: HostContext, config: PluginConfig): () => Prom
             exec.signal,
           ),
         );
-      const synchronization = await synchronize(ids, exec.signal);
+      const synchronization = await timed('host.synchronize', () => synchronize(ids, exec.signal));
       if (args.mode === 'semantic') {
         if (!canEmbed(ids)) fail('EMBEDDING_SCOPE_NOT_ENABLED');
         // A bounded single-session query may catch up its vectors. Broad queries use
         // existing vectors; explicit status/embed batches prepare a larger corpus.
-        if (ids.length === 1) await request('embed', { sessionIds: ids }, exec.signal);
+        if (ids.length === 1)
+          await timed('host.embedding-catchup', () =>
+            request('embed', { sessionIds: ids }, exec.signal),
+          );
       }
-      const result = await request('search', { ...args, sessionIds: ids, binding }, exec.signal);
+      const result = await timed('host.search', () =>
+        request('search', { ...args, sessionIds: ids, binding }, exec.signal),
+      );
       return {
         ...wrap(result),
         synchronization,
@@ -495,32 +526,21 @@ export function applyRuntime(ctx: HostContext, config: PluginConfig): () => Prom
       const id = p.ref.slice(0, cut),
         seq = Number(p.ref.slice(cut + 1));
       if (!syncer.allowed(id) || !Number.isSafeInteger(seq)) fail('OUT_OF_SCOPE');
-      if (!args.cursor) await synchronize([id], exec.signal);
-      const result = await request(
-        'read',
-        { ...p, ref: p.ref!, length: args.length ?? p.length },
-        exec.signal,
+      if (!args.cursor) await timed('host.synchronize', () => synchronize([id], exec.signal));
+      const result = await timed('host.read', () =>
+        request('read', { ...p, ref: p.ref!, length: args.length ?? p.length }, exec.signal),
       );
-      const original = await ctx.sessionQuery.readEvent(
-        { sessionId: id, seq, before: 0, after: 0 },
-        exec.signal,
+      const original = await timed('host.source-verify', () =>
+        ctx.sessionQuery.readEvent({ sessionId: id, seq, before: 0, after: 0 }, exec.signal),
       );
       const event = original.target,
         message = messageOf(event);
-      if (
-        !message ||
-        message.role !== result.role ||
-        (event.surfaceOp !== null && typeof event.surfaceOp === 'object')
-      )
-        fail('SOURCE_CHANGED');
-      if (
-        !(
-          message.role === 'user' &&
-          message.source?.kind === 'user' &&
-          message.source.form !== 'relay'
-        ) &&
-        !(message.role === 'assistant' && message.source?.kind === 'model')
-      )
+      const eligibleSource = (candidate: typeof event, msg: SourceMessage | undefined) =>
+        msg &&
+        !(candidate.surfaceOp !== null && typeof candidate.surfaceOp === 'object') &&
+        ((msg.role === 'user' && msg.source?.kind === 'user' && msg.source.form !== 'relay') ||
+          (msg.role === 'assistant' && msg.source?.kind === 'model'));
+      if (!message || message.role !== result.role || !eligibleSource(event, message))
         fail('SOURCE_CHANGED');
       const verifyAttachment = (part: VisibleBlock, msg: SourceMessage) => {
         const originalPart = msg.content[part.blockIndex];
@@ -538,7 +558,18 @@ export function applyRuntime(ctx: HostContext, config: PluginConfig): () => Prom
             fail('SOURCE_CHANGED');
         }
       };
-      for (const part of result.attachments ?? []) verifyAttachment(part, message);
+      const verifyAttachments = (parts: VisibleBlock[], msg: SourceMessage) => {
+        const originalParts = msg.content
+          .map((part, blockIndex) => ({ type: part.type, blockIndex }))
+          .filter((part) => part.type === 'image' || part.type === 'file');
+        if (
+          JSON.stringify(parts.map(({ type, blockIndex }) => ({ type, blockIndex }))) !==
+          JSON.stringify(originalParts)
+        )
+          fail('SOURCE_CHANGED');
+        for (const part of parts) verifyAttachment(part, msg);
+      };
+      verifyAttachments(result.attachments ?? [], message);
       const block = message.content[result.blockIndex];
       if (result.text !== null && result.text !== undefined) {
         if (
@@ -550,17 +581,24 @@ export function applyRuntime(ctx: HostContext, config: PluginConfig): () => Prom
       }
       const verifiedContext = [];
       for (const neighbor of result.context ?? []) {
-        const next = await ctx.sessionQuery.readEvent(
-          { sessionId: id, seq: neighbor.eventSeq, before: 0, after: 0 },
-          exec.signal,
+        const next = await timed('host.source-verify', () =>
+          ctx.sessionQuery.readEvent(
+            { sessionId: id, seq: neighbor.eventSeq, before: 0, after: 0 },
+            exec.signal,
+          ),
         );
         const msg = messageOf(next.target);
-        if (!msg || msg.role !== neighbor.role) fail('SOURCE_CHANGED');
+        if (!msg || msg.role !== neighbor.role || !eligibleSource(next.target, msg))
+          fail('SOURCE_CHANGED');
+        verifyAttachments(
+          (neighbor.content ?? []).filter((part) => part.type !== 'text'),
+          msg,
+        );
         for (const part of neighbor.content ?? []) {
           if (part.type === 'text') {
             if (msg.content[part.blockIndex]?.text?.slice(0, part.text!.length) !== part.text)
               fail('SOURCE_CHANGED');
-          } else verifyAttachment(part, msg);
+          }
         }
         verifiedContext.push({ ...neighbor, verified: true });
       }

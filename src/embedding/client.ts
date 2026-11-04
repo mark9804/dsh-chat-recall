@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { Embedder } from '../shared/model.js';
+import { timed, timedSync } from '../shared/timing.js';
 
 const REQUEST_TIMEOUT_MS = 30_000;
 const MESSAGES = {
@@ -201,11 +202,13 @@ export function createEmbedder(
     let completed = false;
     try {
       // The race also bounds mocks/transports that ignore AbortSignal.
-      const payload = await Promise.race([fetchJSON(), cancelled]);
+      const payload = await timed('embedding.http', () => Promise.race([fetchJSON(), cancelled]));
       if (controller.signal.aborted) throw failure(timedOut ? 'TIMEOUT' : 'ABORTED');
       let result: OrderedVectors;
       try {
-        result = orderedVectors(payload, input.length, expectedDimensions);
+        result = timedSync('embedding.validate', () =>
+          orderedVectors(payload, input.length, expectedDimensions),
+        );
       } catch {
         throw failure('INVALID_RESPONSE');
       }
