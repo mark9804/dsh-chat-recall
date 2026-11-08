@@ -26,6 +26,9 @@
     "scripts/clean.ts",
     "scripts/check-package.ts",
     "tsconfig.json",
+    "tsconfig.client.json",
+    "src/client/SHADCN_LICENSE.txt",
+    "src/client/NOTICE.md",
     "cordis.patch.yml",
     "locale/",
     "licenses/",
@@ -47,10 +50,11 @@
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json && node --experimental-strip-types scripts/build-client.ts && node --experimental-strip-types scripts/build-vendor.ts",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "format": "prettier --write 'src/**/*.ts' 'test/**/*.ts' 'scripts/**/*.ts'",
-    "format:check": "prettier --check 'src/**/*.ts' 'test/**/*.ts' 'scripts/**/*.ts'",
+    "build": "tsc -p tsconfig.json && tsc -p tsconfig.client.json && node --experimental-strip-types scripts/build-client.ts && node --experimental-strip-types scripts/build-vendor.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.client.json",
+    "typecheck:client": "tsc -p tsconfig.client.json",
+    "format": "prettier --write 'src/**/*.{ts,tsx}' 'test/**/*.{ts,tsx}' 'scripts/**/*.ts'",
+    "format:check": "prettier --check 'src/**/*.{ts,tsx}' 'test/**/*.{ts,tsx}' 'scripts/**/*.ts'",
     "test": "node --experimental-strip-types scripts/test.ts",
     "check:package": "node --experimental-strip-types scripts/check-package.ts",
     "clean": "node --experimental-strip-types scripts/clean.ts",
@@ -60,22 +64,30 @@
   "dependencies": {
     "@deepseek-ai/schemastery": "3.18.5",
     "@opentelemetry/api": "1.10.0",
-    "reflect-metadata": "0.2.2",
-    "apache-arrow": "21.1.0"
+    "apache-arrow": "21.1.0",
+    "reflect-metadata": "0.2.2"
   },
   "optionalDependencies": {
     "@lancedb/lancedb-darwin-arm64": "0.41.0",
-    "@lancedb/lancedb-linux-x64-gnu": "0.41.0",
     "@lancedb/lancedb-linux-arm64-gnu": "0.41.0",
-    "@lancedb/lancedb-linux-x64-musl": "0.41.0",
     "@lancedb/lancedb-linux-arm64-musl": "0.41.0",
-    "@lancedb/lancedb-win32-x64-msvc": "0.41.0",
-    "@lancedb/lancedb-win32-arm64-msvc": "0.41.0"
+    "@lancedb/lancedb-linux-x64-gnu": "0.41.0",
+    "@lancedb/lancedb-linux-x64-musl": "0.41.0",
+    "@lancedb/lancedb-win32-arm64-msvc": "0.41.0",
+    "@lancedb/lancedb-win32-x64-msvc": "0.41.0"
   },
   "devDependencies": {
+    "@base-ui/react": "1.9.0",
     "@lancedb/lancedb": "0.41.0",
+    "@types/jsdom": "21.1.7",
     "@types/node": "24.19.2",
+    "@types/react": "18.3.31",
+    "@types/react-dom": "18.3.7",
+    "esbuild": "0.28.2",
+    "jsdom": "26.1.0",
     "prettier": "3.6.2",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
     "typescript": "5.9.3"
   }
 }

@@ -51,7 +51,7 @@ interface WorkerRun {
   handle: SubprocessHandle | null;
   handshake: WorkerReady | null;
   stopping: boolean;
-  exited: boolean;
+  directExited: boolean;
   decoder: StringDecoder;
   buffer: string;
   shutdownError: boolean;
@@ -294,7 +294,7 @@ export class WorkerBridge {
             handle: null,
             handshake: null,
             stopping: false,
-            exited: false,
+            directExited: false,
             decoder: new StringDecoder('utf8'),
             buffer: '',
             shutdownError: false,
@@ -355,7 +355,7 @@ export class WorkerBridge {
       run.handle = handle;
       run.done = Promise.resolve(handle.done).then(
         () => {
-          run.exited = true;
+          run.directExited = true;
           if (!run.stopping) this.#stop(run, failure('WORKER_EXITED'));
         },
         () => {
@@ -464,25 +464,36 @@ export class WorkerBridge {
       await run.startTask;
       const handle = run.handle;
       if (handle) {
-        if (graceful && !run.exited) {
+        // `done` covers the direct command, not its descendants. Only the
+        // provider's independent range observation permits closure/replacement.
+        let rangeExited = false;
+        const quiescence = Promise.resolve()
+          .then(() => handle.waitForExit())
+          .then((exited) => {
+            if (!exited) throw failure('WORKER_SHUTDOWN_FAILED');
+            rangeExited = true;
+          });
+        // Observe failures immediately, including while EOF grace is pending.
+        void quiescence.catch(() => {});
+        if (graceful && !run.directExited) {
           let timer: NodeJS.Timeout | undefined;
           try {
             handle.stdin.end();
             await Promise.race([
-              run.done,
+              quiescence,
               new Promise((resolve) => {
                 timer = setTimeout(resolve, CLOSE_GRACE_MS);
               }),
             ]);
           } catch {
-            // A broken stdin still needs termination and a quiescence wait.
+            // A broken stdin or failed observation still needs range termination.
           } finally {
             clearTimeout(timer);
           }
         }
-        if (!run.exited) handle.terminate();
+        if (!rangeExited) handle.terminate();
         await run.done;
-        if (!(await handle.waitForExit())) throw failure('WORKER_SHUTDOWN_FAILED');
+        await quiescence;
       }
     })().then(
       () => {

@@ -84,8 +84,11 @@ export interface SubprocessHandle {
   stdin: Writable;
   stdout: Readable;
   stderr: Readable;
+  /** Direct command outcome; completion alone does not prove range quiescence. */
   done: Promise<unknown>;
+  /** Start the provider's termination procedure for the entire managed range. */
   terminate(): void;
+  /** Observe that same range independently; does not initiate termination. */
   waitForExit(): Promise<boolean>;
 }
 export interface SubprocessService {

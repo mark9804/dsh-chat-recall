@@ -25,6 +25,7 @@ async function run(argv: string[]): Promise<void> {
 try {
   // Tests exercise emitted JS, but neither tests nor the working tree retain it.
   await run([tsc, '-p', 'tsconfig.json']);
+  await run([tsc, '-p', 'tsconfig.client.json']);
   await run(['--experimental-strip-types', 'scripts/build-client.ts']);
   await run(['--experimental-strip-types', 'scripts/build-vendor.ts']);
   await run([tsc, '-p', 'tsconfig.test.json']);

@@ -1,36 +1,9 @@
-/** Narrow, type-only Client contracts verified against the installed DSH services.
- * No browser dependency is bundled: the host module table provides React.
+import type { ComponentType } from 'react';
+
+/** Narrow public Client contracts verified against the installed DSH services.
+ * React/ReactDOM are provided by the host; Base UI is bundled in the Client only.
  */
 export type Dispose = () => void;
-
-export interface ReactElement {
-  readonly type: unknown;
-  readonly props: unknown;
-  readonly key: string | null;
-}
-export type ReactNode =
-  | ReactElement
-  | string
-  | number
-  | boolean
-  | null
-  | undefined
-  | readonly ReactNode[];
-export type StateSetter<T> = (value: T | ((previous: T) => T)) => void;
-export interface ReactRuntime {
-  createElement(
-    type: string,
-    props: Readonly<Record<string, unknown>> | null,
-    ...children: ReactNode[]
-  ): ReactElement;
-  createElement<P>(type: (props: P) => ReactNode, props: P, ...children: ReactNode[]): ReactElement;
-  useState<T>(initial: T | (() => T)): [T, StateSetter<T>];
-  useMemo<T>(factory: () => T, dependencies: readonly unknown[]): T;
-  useEffect(effect: () => void | Dispose, dependencies: readonly unknown[]): void;
-  useRef<T>(initial: T): { current: T };
-  useId(): string;
-  useSyncExternalStore<T>(subscribe: (listener: Dispose) => Dispose, getSnapshot: () => T): T;
-}
 
 export interface Observable<T> {
   getSnapshot(): T;
@@ -117,7 +90,7 @@ export interface ClientContext {
         label: () => string;
         locale: 'chat-recall';
       },
-      component: (props: SettingsSectionProps) => ReactNode,
+      component: ComponentType<SettingsSectionProps>,
     ): Dispose;
   };
 }
@@ -128,7 +101,7 @@ export interface ClientPlugin {
 export interface ModuleLoader {
   load(module: {
     id: 'dsh-chat-recall';
-    factory(require: (id: 'react') => ReactRuntime): ClientPlugin;
+    factory(require: (id: string) => unknown): ClientPlugin;
   }): void;
 }
 
