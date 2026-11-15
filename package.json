@@ -27,6 +27,10 @@
     "scripts/check-package.ts",
     "tsconfig.json",
     "tsconfig.client.json",
+    "docs/architecture.md",
+    "docs/development.md",
+    "docs/api.md",
+    "scripts/check-docs.ts",
     "src/client/SHADCN_LICENSE.txt",
     "src/client/NOTICE.md",
     "cordis.patch.yml",
@@ -57,6 +61,7 @@
     "format:check": "prettier --check 'src/**/*.{ts,tsx}' 'test/**/*.{ts,tsx}' 'scripts/**/*.ts'",
     "test": "node --experimental-strip-types scripts/test.ts",
     "check:package": "node --experimental-strip-types scripts/check-package.ts",
+    "check:docs": "node --experimental-strip-types scripts/check-docs.ts",
     "clean": "node --experimental-strip-types scripts/clean.ts",
     "prepack": "pnpm run build",
     "postpack": "pnpm run clean"

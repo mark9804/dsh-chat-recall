@@ -6,9 +6,9 @@ import type { OpenStoreOptions, RecallStore } from '../src/storage/store.js';
 
 // Offline-only: import the installed implementation into a private instrumented
 // copy. No environment file, fetch, model client, profile mutation or cleanup.
-const installed = resolve(
-  process.argv[2] ?? '/Users/zhaoluchen/.dsh/profiles/desktop/node_modules/dsh-chat-recall',
-);
+const baselinePackage = process.argv[2];
+if (!baselinePackage) throw new Error('Pass the baseline package directory explicitly.');
+const installed = resolve(baselinePackage);
 const corpusRoot = resolve(process.argv[3] ?? '.benchmark/qwen-vllm');
 const output = resolve(
   process.argv[4] ?? `.benchmark/latency-${new Date().toISOString().replaceAll(/[:.]/g, '-')}`,

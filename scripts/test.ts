@@ -29,6 +29,7 @@ try {
   await run(['--experimental-strip-types', 'scripts/build-client.ts']);
   await run(['--experimental-strip-types', 'scripts/build-vendor.ts']);
   await run([tsc, '-p', 'tsconfig.test.json']);
+  await run(['--experimental-strip-types', 'scripts/check-docs.ts']);
   const tests = (await readdir(resolve(projectRoot, 'test')))
     .filter((name) => name.endsWith('.test.ts'))
     .sort()
