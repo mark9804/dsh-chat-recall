@@ -1,102 +1,130 @@
-# TypeScript 源码阅读与开发
+# 开发指南
 
-v0.2.1 是阶段性代码整理：正式实现从 JavaScript 迁到 TypeScript，不改变索引格式、工具参数、分块策略、候选阈值或已有数据。
+本指南面向修改源码、增加测试或维护DSH集成的人类开发者。[架构文档](<architecture.md>)解释运行机制，[接口参考](<api.md>)给出参数、数据类型和协议边界。
 
-## 从哪里开始看
+## 环境与首次运行
 
-建议按下面的顺序阅读，而不是先钻进数据库代码：
-
-1. [model.ts](<../src/shared/model.ts>)：索引行、原文块、搜索结果与 embedding 接口。
-2. [protocol.ts](<../src/shared/protocol.ts>)：Host 与 worker 的请求／返回类型映射。方法名与参数、结果在编译期关联。
-3. [plugin.ts](<../src/host/plugin.ts>)：插件配置、四个模型工具、范围限制、分页封装和原事件核验。
-4. [sync.ts](<../src/host/sync.ts>)：读取日志尾部、校验 anchor、生成增量批次；不直接操作数据库。
-5. [store.ts](<../src/storage/store.ts>)：LanceDB schema、journal 恢复、向量进度、检索与原文读取。
-
-算法可独立读：
-
-| 源码 | 职责 |
-|---|---|
-| [chunking.ts](<../src/core/chunking.ts>) | 段落／句尾分块，保留原文 UTF-16 偏移 |
-| [candidates.ts](<../src/core/candidates.ts>) | 根据分数差选择 1 或 3–5 条正文，输出前三名比较 |
-| [cursors.ts](<../src/core/cursors.ts>) | 固定搜索快照、签名游标、TTL 与容量限制 |
-| [client.ts](<../src/embedding/client.ts>) | OpenAI-compatible embedding 协议、批处理、超时、取消与响应校验 |
-| [session-text.ts](<../src/shared/session-text.ts>) | 从 DSH 事件提取原始可见消息，排除注入与替换摘要 |
-
-运行边界：
-
-| 源码 | 职责 |
-|---|---|
-| [bridge.ts](<../src/host/bridge.ts>) | 受管理独立 Node 子进程、JSONL 请求、取消和退出确认 |
-| [contracts.ts](<../src/host/contracts.ts>) | 实际使用的 DSH 公共接口最小结构类型 |
-| [types.ts](<../src/host/types.ts>) | 工具参数、Host 游标和配置类型 |
-| [main.ts](<../src/worker/main.ts>) | 子进程入口，串行分发操作 |
-| [settings.ts](<../src/client/settings.ts>) | DSH原生设置页、草稿和授权确认 |
-| [config.ts](<../src/host/config.ts>) | 可编辑配置schema、运行时快照与校验 |
-
-## 构建与测试
+使用支持TypeScript type stripping且可加载LanceDB原生模块的Node.js，最低版本见[包清单](<../package.json>)，推荐Node 24 LTS。DSH Host与检索worker是不同进程，不能因为Host能启动就假设它能加载原生数据层。使用pnpm与现有锁文件，不需要ts-node或tsx运行器。
 
 ```bash
-pnpm install --ignore-scripts
+pnpm install --frozen-lockfile --ignore-scripts
 pnpm run typecheck
-pnpm test                 # build → TS测试类型检查 → 回归 → clean
 pnpm run format:check
-pnpm run build           # 安装前显式构建
-pnpm run clean           # 删除dist，不触碰其他目录
+pnpm run check:docs
+pnpm test
 ```
 
-运行开发工具需要支持type stripping的Node >=22.6，推荐24 LTS；无需tsx/ts-node。测试Node必须能加载LanceDB原生模块，可用 `RECALL_TEST_NODE` 覆盖默认的 `process.execPath`。从源码链接安装前先build，运行期间不能clean；安装打包文件则不会依赖仓库里的dist。
+`--ignore-scripts`不批准依赖安装脚本。平台原生包与esbuild由声明的依赖解析；若环境不满足，先查明缺失的包或平台支持，不修改系统安全设置来绕过。`RECALL_TEST_NODE`可显式指定测试runner和测试子进程使用的独立Node绝对路径。
 
-[tsconfig.json](<../tsconfig.json>) 使用：
+## 源码地图
 
-- `strict: true`，包含 `noImplicitAny` 与严格空值检查；
-- `NodeNext` ESM、目标 `ES2022`，输出目录 `dist`；
-- `noEmitOnError: true`，类型错误不能生成新产物；
-- 声明文件、声明映射与 source map；
-- `skipLibCheck: true` 只跳过依赖声明内部检查，不跳过本项目源码。
+| 入口 | 职责 |
+| --- | --- |
+| [Host插件](<../src/host/plugin.ts>) | 配置代次、工具注册、授权、同步调度、原事件核验和清理 |
+| [Host配置](<../src/host/config.ts>) | Schemastery字段、volatile值、校验和不可变运行时快照 |
+| [DSH Host窄契约](<../src/host/contracts.ts>) | 实际使用的DSH服务与事件最小结构类型，不是完整SDK |
+| [会话同步](<../src/host/sync.ts>) | 目录、观察租约、只读持久化句柄、anchor和尾部批次 |
+| [进程桥接](<../src/host/bridge.ts>) | ready握手、JSONL请求、取消、超时和范围退出确认 |
+| [worker入口](<../src/worker/main.ts>) | 协议校验、串行请求分发、环境配置与store生命周期 |
+| [存储实现](<../src/storage/store.ts>) | LanceDB表、journal恢复、检索、向量进度与索引维护 |
+| [共享数据模型](<../src/shared/model.ts>) | 来源行、完整文本块、命中、覆盖与embedding接口 |
+| [worker协议](<../src/shared/protocol.ts>) | 方法到参数／结果的类型映射，JSONL envelope |
+| [来源提取](<../src/shared/session-text.ts>) | 从用户／模型事件提取文本和附件引用，排除工具／替换来源 |
+| [分块](<../src/core/chunking.ts>) | 保留原文、UTF-16区间和段落优先边界 |
+| [候选策略](<../src/core/candidates.ts>) | 可配置的语义候选展示规则，不负责判断答案真伪 |
+| [搜索快照](<../src/core/cursors.ts>) | 固定候选、签名cursor、TTL、容量和调用者绑定 |
+| [embedding客户端](<../src/embedding/client.ts>) | OpenAI-compatible协议、空间身份、批处理、取消和响应校验 |
+| [Client入口](<../src/client/settings.ts>) | ModuleLoader导出、locale与settings.section贡献 |
+| [设置视图](<../src/client/SettingsPage.tsx>) | 共享配置订阅、草稿、显式授权与revision保存 |
+| [设置纯模型](<../src/client/model.ts>) | 字段校验、授权差异、元数据过滤与50条分页 |
+| [基础控件](<../src/client/ui.tsx>)、[shadcn组合](<../src/client/shadcn.tsx>) | Base UI包装与组合 |
+| [局部样式](<../src/client/styles.css>) | 插件根作用域、宿主主题token与响应式布局 |
 
-编译结果不是第二套手写实现。DSH的包导出指向编译后的Host JS；独立Node执行编译后的worker JS；Client通过DSH ModuleLoader加载设置页工厂。运行时不需要ts-node、tsx或TypeScript loader。
+首次阅读建议：共享模型 → Host入口 → 会话同步 → store → worker协议与桥接。修改某个功能时沿实际调用链阅读，不把内部worker方法当作公开DSH服务。
 
-[build-client.ts](<../scripts/build-client.ts>)只去除type-only imports导致的空ESM标记，保留source map行位置；不引入新bundler。Client单文件工厂仅require宿主React，不复制React、不import宿主UI包。配置读取与保存使用宿主共享configForms，样式使用已核对的theme tokens，中英文文本走locale。
+## 类型与运行时边界
 
-[package.json](<../package.json>) 的test通过 [test.ts](<../scripts/test.ts>) 先构建、再按 [tsconfig.test.json](<../tsconfig.test.json>) 严格检查所有TS测试、执行回归与产物边界检查；无论成功或失败都在finally中调用 [clean.ts](<../scripts/clean.ts>) 删除dist。只删除验证过的本仓库生成目录，不删除任何索引数据。
+- [Host类型配置](<../tsconfig.json>)：strict、NodeNext ESM、ES2022和Node库类型；输出JavaScript、声明与source map，不编译Client。
+- [Client类型配置](<../tsconfig.client.json>)：strict、Bundler解析、react-jsx和DOM类型，noEmit；实际打包交给esbuild。
+- [测试类型配置](<../tsconfig.test.json>)：覆盖源码、测试和开发脚本。测试依赖临时编译产物，单独执行此检查前需先build。
+- DSH最小契约只记录插件依赖的结构；升级DSH时重新核对公开API与事件语义，类型通过不等于运行契约已经验证。
+- JSONL、HTTP JSON、DSH事件与Arrow行仍需运行时检查。不要用类型断言代替权限、范围、来源或协议验证。
 
-prepack先构建，postpack清理；`pnpm pack --pack-destination <仓库外目录>` 可把安装包存到源码树之外。开发依赖固定TypeScript、Node类型与Prettier版本，不执行安装脚本。
+## 构建与分发
 
-## 依赖打包
+```bash
+pnpm run build
+pnpm run check:package
+# 需要制作安装包时才执行：
+pnpm pack --pack-destination /absolute/path/to/output
+```
 
-LanceDB 0.41.0 的完整npm包带有可选OpenAI和Transformers依赖，源码workspace的ignoredOptionalDependencies不会传播到消费插件的profile。v0.3.1将完整包改为开发依赖；[build-vendor.ts](<../scripts/build-vendor.ts>)在构建时把上游dist原样复制到产物内，保留原生加载器和所有许可告知，只生成精简package.json与来源说明。
+构建由三部分组成：
 
-实际运行依赖是Arrow、OpenTelemetry API、reflect-metadata和按平台安装的LanceDB原生包。插件没有使用上游自动embedding集成，不安装OpenAI／Transformers SDK，也不授权onnxruntime-node、protobufjs、sharp的安装脚本。字节一致性及依赖声明在 [打包测试](<../test/packaging.test.ts>) 中核对。
+1. TypeScript编译Host、worker与共享模块。
+2. [Client构建脚本](<../scripts/build-client.ts>)把TSX和Base UI构建为classic `window.__ModuleLoader__.load(...)`工厂，CSS作为文本由组件渲染。仅external宿主`react`、`react-dom`和`react/jsx-runtime`；拒绝把第二份React打入包。
+3. [LanceDB分发脚本](<../scripts/build-vendor.ts>)复制上游运行时代码及许可，保留原生加载器。完整LanceDB包仅用于开发构建；运行依赖使用Arrow、OpenTelemetry、reflect-metadata和平台原生包，不引入其可选模型SDK。
 
-上游代码不是手写的第二套实现，随dist一起清理。Apache许可文本来自 [Apache官方](https://www.apache.org/licenses/LICENSE-2.0.txt)；升级LanceDB必须重新核对依赖与许可证。完整包保留跨平台原生可选包；本轮只实测macOS arm64。
+Client构建按esbuild metafile收集实际内置依赖的许可，生成第三方notices和哈希／输入元数据。[包边界检查](<../scripts/check-package.ts>)验证Host原生依赖隔离、worker入口、classic Client格式、共享React、许可覆盖和[包清单](<../package.json>)的发布范围。组件来源与许可见[Client NOTICE](<../src/client/NOTICE.md>)。
 
-## 类型边界的约定
+prepack执行build，postpack清理生成目录。源码链接安装期间必须保留构建产物；安装独立包不会依赖源码工作树。通过DSH插件管理器安装，不手工编辑profile的依赖或patch文件。Host模块更新后完整重启DSH；Client的热更新能力不能替代Host重新加载。
 
-- 业务数据在 [model.ts](<../src/shared/model.ts>) 和 [store.ts](<../src/storage/store.ts>) 中明确定义，LanceDB 使用其官方 `Table`／`Query` 等类型。
-- [contracts.ts](<../src/host/contracts.ts>) 只是当前 DSH Inspect 核对过的最小结构视图，**不是官方完整 SDK，也不伪装成官方模块声明**。升级 DSH 时应重新核对。
-- `import type` 不进入运行时，因此 Host 不会因引用存储接口而加载 LanceDB 原生库。
-- JSONL、HTTP JSON、Arrow 行和持久化 JSON 仍是运行时边界。保留原有检查，并在已知 schema 的转换位置做窄断言；TypeScript 不能代替运行时验证。
-- 正式源码没有 `any`、`@ts-ignore` 或 `@ts-nocheck`。没有用关闭 strict 的方式通过迁移。
+## 测试策略
 
-## 测试覆盖与清理范围
+[测试入口](<../scripts/test.ts>)依次编译Host、检查Client类型、构建Client与vendor、严格检查测试类型、校验公开文档、执行所有顶层`.test.ts`、核对包边界。无论成功或失败都在finally里调用[清理函数](<../scripts/clean.ts>)，只清理经过路径验证的本仓库生成目录，不删除用户索引。
 
-正式测试现为 `.test.ts`，完整保留核心算法、HTTP协议、桥接生命周期、事件提取、生产存储、同步和Host流程的断言；仍导入临时dist来验证实际运行产物。故意无效的输入使用局部类型断言，不关闭strict检查。
+| 层次 | 关注点与代表测试 |
+| --- | --- |
+| 纯函数 | [分块](<../test/core-chunking.test.ts>)、[候选](<../test/core-candidates.test.ts>)、[cursor](<../test/core-cursors.test.ts>)、[设置模型](<../test/settings-client-model.test.ts>) |
+| 数据层 | [真实LanceDB store](<../test/production-store.test.ts>)、[增量同步](<../test/production-sync.test.ts>)、[来源事件提取](<../test/session-text.test.ts>) |
+| Host/worker | [桥接](<../test/bridge.test.ts>)、[生产Host](<../test/production-host.test.ts>)、[配置生命周期](<../test/settings-host.test.ts>)、[内容核验](<../test/acceptance-content.test.ts>) |
+| 交互与产物 | [真实React/Base UI合成DOM交互](<../test/settings-interaction.test.ts>)、[Client产物](<../test/settings-artifact.test.ts>)、[依赖分发](<../test/packaging.test.ts>) |
+| 多轮检索 | [合成挑战](<../test/challenge-flows.test.ts>)：完整遍历搜索cursor、逐引用核验、长文read续页及篡改拒绝 |
+| worker协议 | [JSONL状态机](<../test/worker-protocol.test.ts>)：ready、configure前拒绝访问、单次配置与串行响应 |
 
-已删除旧JS实现、兼容转发、实验worker/Host、一次性迁移脚本、本地测试包装包和旧打包文件。只针对废弃实验实现的5组测试不再保留；测试数量降低并不代表删除正式功能断言。早期验证文档保留为历史记录，链接到已删代码的部分已标记退役。
+默认回归不读取真实会话或凭据，不需要外部embedding服务；向量来自合成embedder，HTTP使用本地fixture。实际启动的Node worker由测试等待退出。数据构造约定见[合成fixture说明](<../test/fixtures/README.md>)。
 
-第三方依赖目录不是本项目源码，不删除依赖内部的JS。Git忽略的历史证据、真实聊天索引和凭据也不属于构建产物，不在清理范围。
+### 按数据不变量组织断言
 
-## 源码-only 清理验证
+| 数据／状态 | 必须保持的关系 |
+| --- | --- |
+| 事件 → 消息／文本块 | 原seq、blockIndex、来源与附件集合不丢失；相同文字不是相同来源；缓存不得替代不可读或已变更的原事件 |
+| session checkpoint／journal | 只有完整批次写入后才推进checkpoint；重放幂等；中断后恢复，不能查询半提交结果 |
+| embedding空间／进度 | 本地同步不外发；仅缺失chunk进入授权embedder；失败保留已提交向量；模型空间不混用 |
+| 搜索／读取快照 | cursor绑定调用者与查询条件；续页不重复embedding，结果顺序固定；篡改、到期与重启明确失败 |
+| worker run／pending请求 | ready前不发请求；取消不自动重放；直接命令退出不等于受管范围退出；退出确认失败不能替代 |
+| 配置基线／草稿／revision | 新目录不自动选入；嵌入范围受本地语料约束；授权改变重置确认；冲突或拒绝不得覆盖草稿 |
 
-正式TS测试 **175/175通过**，strict检查与实际编译产物边界检查通过；测试结束dist已自动清理。原迁移阶段197项中，22项旧实验专用用例随退役实现删除，正式功能用例全部保留。详见 [清理记录](<cleanup.md>)。
+优先测试可观察行为和具体故障，不锁定函数排列、AST调用写法或英文提示句子。[包边界检查](<../scripts/check-package.ts>)统一负责模块格式、共享React、manifest和许可，测试文件不重复复制同一套检查。相同分支的等价标量用少量边界样本；不同的状态转换、Unicode边界、索引缺失与恢复阶段不能因为“看起来类似”而合并掉。
 
-## TypeScript 迁移阶段验证（清理前）
+[Host测试辅助函数](<../test/helpers/host.ts>)只复用真实Node启动适配，不统一不同的源读取fixture，也不模拟真实DSH provider的受管范围。合成题库中的无证据、历史指令和未测指标场景仍可用于人工／模型评估；仅检查题面字符串不能证明拒答能力、prompt-injection防护或模型引用正确，因此不计入自动行为保证。
 
-- `pnpm run typecheck`：通过，strict 模式。
-- `pnpm run format:check`：通过。
-- `pnpm test`：**197/197 通过**，其中195项沿用原回归，新增2项保持worker的裸JSONL configure缺省参数兼容性。
-- DSH签名Node作为父进程执行正式Host集成测试：**4/4通过**；LanceDB仍只在独立Node子进程加载。
-- 独立只读审查发现的configure缺省兼容差异已修复；Host实际header类型与历史提取fixture类型已分开，不再用origin断言掩盖类型矛盾。
-- v0.2.1打包检查包含源码、编译JS、声明及映射；不包含.env、实验数据库、旧实验入口或本机配置。
+合成DOM不验证真实DSH布局、主题对照、屏幕阅读器或浏览器默认事件。修改UI后仍需在真实DSH设置页检查窄／宽布局、深／浅主题、焦点、键盘和拒写反馈。slot注册成功不等于视图已渲染；fixture生命周期测试也不能代替实际Loader/provider集成。后台autoSync目前覆盖了发现期间的退出竞态，但没有完整的事件标dirty到后台增量落库端到端用例，不能从显式sync通过推定这一链路已被回归覆盖。
 
-上述197项是迁移阶段结果，不是清理后的测试数。后续按用户要求进行了源码-only清理：四个指向仓库的本地链接包已通过plugin_manager卸载，原索引和配置快照保留；没有迁移数据库、调用远程embedding或发布npm。重新使用时须构建并安装正式包，恢复需要的配置范围。
+### 定向调试
+
+```bash
+pnpm run build
+node --experimental-strip-types --test test/bridge.test.ts
+node --experimental-strip-types --test test/settings-interaction.test.ts
+pnpm run clean
+```
+
+上例只调用合成测试。`pnpm test`会自动管理构建与清理，适合作为提交前默认检查。不要并发运行会覆盖或清理同一个生成目录的build/test/pack命令。
+
+可选的[外部文本诊断](<../evaluation/README.md>)与默认测试分离。相关脚本可能调用真实embedding服务，必须先确认数据许可、外发授权、费用与输出目录；安装依赖或运行`pnpm test`不会启动这些脚本。
+
+## 修改约束
+
+- 新增范围或外发能力必须有显式配置与校验，不能由目录变化、工具调用或UI打开自动授权。
+- 修改提取规则时覆盖原始用户／模型来源、工具结果、relay、替换摘要、附件集合和fork继承身份；相同文字不等于同一来源。
+- 修改数据模型、chunking版本、embedding空间或cursor格式时说明兼容策略，不覆盖不匹配的旧数据，也不自动清库。
+- 保留取消后不自动重放请求、旧代退出确认后再替代、观测失败则拒绝重启的约束。`done`只代表直接命令结果，受管范围确认来自`waitForExit()`。
+- UI只读会话元数据；保存使用开始编辑时的revision和完整操作列表。失败保留草稿，重定基线必须重新审查权限。
+- 不记录密钥、原始stderr、完整后端异常或用户环境文件。诊断计时按[计时模块](<../src/shared/timing.ts>)的允许字段输出，不能把调试日志当作可公开的数据集。
+
+## 文档维护
+
+四份主文档分别是[README](<../README.md>)、[架构](<architecture.md>)、本指南和[接口参考](<api.md>)。按当前行为维护，不累积机器专属的安装交接、逐轮试验或聊天决策。`pnpm run check:docs`检查公开文档链接、主文档集合与明显的私有标识；第三方许可必须保留，不能因精简文档而删除版权说明。
+
+Git忽略的环境文件、索引、原始评估输出和本地记录不属于公开文档。忽略规则不能擦除Git历史；首次公开仓库前应独立检查已有提交及文件的数据许可，尤其不要把来源不明的外部语料当成项目自有合成对话。

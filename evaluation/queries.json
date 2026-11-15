@@ -1,0 +1,489 @@
+{
+  "version": 1,
+  "selection": "Known-item diagnostic: 24 manually selected targets from two optional English text inputs, with paired English and Chinese paraphrases (48 positives) and four expected out-of-domain negatives. Input line counts are 10000 image descriptions and 6484 video descriptions, including unterminated final lines. Targets are position-stratified, not random or exhaustive relevance judgments. targetHash is SHA-256 of the exact UTF-8 target line, excluding its line terminator and preserving internal whitespace.",
+  "limitations": [
+    "This is a small, manually selected known-item diagnostic set, not production traffic, random sampling, exhaustive qrels or a universal semantic benchmark.",
+    "External source texts and visual media require independent permission and version checks. They are not project-authored synthetic conversation fixtures.",
+    "English and Chinese queries share 24 paired targets, not 48 independent relevance judgments. Distinctive scenarios can be easier than generic requests.",
+    "Duplicate or near-duplicate source lines may exist. Report strict source-plus-line Hit@k separately from predeclared exact-text equivalence or manual relevance review.",
+    "Long video descriptions can be split into multiple chunks. Preserve source-line provenance, record actual chunking, and deduplicate before reporting line-level metrics.",
+    "Negative queries have no exhaustive absence proof. Ordinary nearest-neighbor candidates are not a calibrated refusal policy.",
+    "ANN neighbor preservation and source-target Hit@k measure different properties. Do not infer precision, nDCG or total semantic recall from single positive labels.",
+    "The manifest contains inputs only, not performance claims. Record input hashes, model, dimensions, vector-space identity, index settings and timing boundaries with each optional run."
+  ],
+  "queries": [
+    {
+      "id": "p01-en",
+      "source": "captions_coco10k.txt",
+      "line": 10,
+      "language": "en",
+      "kind": "positive",
+      "query": "A small girl is on her feet in a lounge with an oversized remote-control device.",
+      "targetHash": "4ed94937934b76559ff9128a9e88d90e4b5a67f353f39a7e379f2a7ac99e4693"
+    },
+    {
+      "id": "p01-zh",
+      "source": "captions_coco10k.txt",
+      "line": 10,
+      "language": "zh",
+      "kind": "positive",
+      "query": "找一个小女孩站在客厅里，手上拿着很大的遥控器的场景。",
+      "targetHash": "4ed94937934b76559ff9128a9e88d90e4b5a67f353f39a7e379f2a7ac99e4693"
+    },
+    {
+      "id": "p02-en",
+      "source": "captions_coco10k.txt",
+      "line": 900,
+      "language": "en",
+      "kind": "positive",
+      "query": "A breakfast setting pairs cereal in a green dish with a banana and coffee served without milk.",
+      "targetHash": "82da512b28e511d6d99ee22ae0cebfebdb3a10fce6fd34226dcdd10a5c913847"
+    },
+    {
+      "id": "p02-zh",
+      "source": "captions_coco10k.txt",
+      "line": 900,
+      "language": "zh",
+      "kind": "positive",
+      "query": "早餐里有绿色碗装的麦片、一根香蕉，还有一杯不加奶的咖啡。",
+      "targetHash": "82da512b28e511d6d99ee22ae0cebfebdb3a10fce6fd34226dcdd10a5c913847"
+    },
+    {
+      "id": "p03-en",
+      "source": "captions_coco10k.txt",
+      "line": 1702,
+      "language": "en",
+      "kind": "positive",
+      "query": "A shop's hanging timepiece uses alphabet characters where the hour numerals should be.",
+      "targetHash": "1b0bcca8efcd0908f12b2a47c5193e89be5b33454d62ad66d9dc1cf7716baf4d"
+    },
+    {
+      "id": "p03-zh",
+      "source": "captions_coco10k.txt",
+      "line": 1702,
+      "language": "zh",
+      "kind": "positive",
+      "query": "商店挂着一只特别的钟，钟面不用数字，而是用字母来标示。",
+      "targetHash": "1b0bcca8efcd0908f12b2a47c5193e89be5b33454d62ad66d9dc1cf7716baf4d"
+    },
+    {
+      "id": "p04-en",
+      "source": "captions_coco10k.txt",
+      "line": 2506,
+      "language": "en",
+      "kind": "positive",
+      "query": "An elephant has a damaged ivory tusk with a section missing.",
+      "targetHash": "fcfc317fe29964247116d2891060a883cd1cf305f6ecf4d5a4998d4ca4af803a"
+    },
+    {
+      "id": "p04-zh",
+      "source": "captions_coco10k.txt",
+      "line": 2506,
+      "language": "zh",
+      "kind": "positive",
+      "query": "一头大象的一根象牙缺了一截。",
+      "targetHash": "fcfc317fe29964247116d2891060a883cd1cf305f6ecf4d5a4998d4ca4af803a"
+    },
+    {
+      "id": "p05-en",
+      "source": "captions_coco10k.txt",
+      "line": 3400,
+      "language": "en",
+      "kind": "positive",
+      "query": "At a boy's birthday, a man makes an animal puppet do the cake cutting.",
+      "targetHash": "38deed9a3b5314008350062ff9b33eed635ead4cef21b04a76f809d377356c67",
+      "notes": "The original line contains a doubled internal space; the target hash preserves it."
+    },
+    {
+      "id": "p05-zh",
+      "source": "captions_coco10k.txt",
+      "line": 3400,
+      "language": "zh",
+      "kind": "positive",
+      "query": "一位男子用动物造型的木偶给男孩切生日蛋糕。",
+      "targetHash": "38deed9a3b5314008350062ff9b33eed635ead4cef21b04a76f809d377356c67"
+    },
+    {
+      "id": "p06-en",
+      "source": "captions_coco10k.txt",
+      "line": 4203,
+      "language": "en",
+      "kind": "positive",
+      "query": "Find a kneeling giraffe on the grass, close to a fence.",
+      "targetHash": "72f0b70f9af320c27de433ceea204d895bdc9c9a33ae5543c7e28d5495b7216c"
+    },
+    {
+      "id": "p06-zh",
+      "source": "captions_coco10k.txt",
+      "line": 4203,
+      "language": "zh",
+      "kind": "positive",
+      "query": "一只长颈鹿屈膝跪在草地上，旁边就是围栏。",
+      "targetHash": "72f0b70f9af320c27de433ceea204d895bdc9c9a33ae5543c7e28d5495b7216c"
+    },
+    {
+      "id": "p07-en",
+      "source": "captions_coco10k.txt",
+      "line": 5002,
+      "language": "en",
+      "kind": "positive",
+      "query": "A male cook in an apron works over a heavy-duty commercial range.",
+      "targetHash": "6dd2b7b03a6d75cc9021f231c17168a11fe606df672d3baa0307dc9d80b5a955"
+    },
+    {
+      "id": "p07-zh",
+      "source": "captions_coco10k.txt",
+      "line": 5002,
+      "language": "zh",
+      "kind": "positive",
+      "query": "一个系着围裙的男人正在工业用炉灶前做饭。",
+      "targetHash": "6dd2b7b03a6d75cc9021f231c17168a11fe606df672d3baa0307dc9d80b5a955"
+    },
+    {
+      "id": "p08-en",
+      "source": "captions_coco10k.txt",
+      "line": 5898,
+      "language": "en",
+      "kind": "positive",
+      "query": "Benches throw shadows across the pavement while a cyclist passes farther back.",
+      "targetHash": "db5c7d1faf55ab153ca254ca7b5173c534dc366d46c9c46c899280ea195e6e0a"
+    },
+    {
+      "id": "p08-zh",
+      "source": "captions_coco10k.txt",
+      "line": 5898,
+      "language": "zh",
+      "kind": "positive",
+      "query": "长椅的影子落在人行道上，背景里有一个男人骑着自行车。",
+      "targetHash": "db5c7d1faf55ab153ca254ca7b5173c534dc366d46c9c46c899280ea195e6e0a"
+    },
+    {
+      "id": "p09-en",
+      "source": "captions_coco10k.txt",
+      "line": 6701,
+      "language": "en",
+      "kind": "positive",
+      "query": "Roadside signs are plastered with adhesive labels.",
+      "targetHash": "b8956b40d42408f1645223f1f643b9f3a1930bc4cb81ecbe5a378420fbc251b4"
+    },
+    {
+      "id": "p09-zh",
+      "source": "captions_coco10k.txt",
+      "line": 6701,
+      "language": "zh",
+      "kind": "positive",
+      "query": "路边的交通标牌上贴满了贴纸。",
+      "targetHash": "b8956b40d42408f1645223f1f643b9f3a1930bc4cb81ecbe5a378420fbc251b4"
+    },
+    {
+      "id": "p10-en",
+      "source": "captions_coco10k.txt",
+      "line": 7502,
+      "language": "en",
+      "kind": "positive",
+      "query": "A tipper truck carries a group of male passengers in its rear load area.",
+      "targetHash": "5da80b7db3d02c079d842b030a4384980141fafd83888a9fff312750a5f60665"
+    },
+    {
+      "id": "p10-zh",
+      "source": "captions_coco10k.txt",
+      "line": 7502,
+      "language": "zh",
+      "kind": "positive",
+      "query": "好几个男人坐在一辆自卸卡车后面的货斗里随车行进。",
+      "targetHash": "5da80b7db3d02c079d842b030a4384980141fafd83888a9fff312750a5f60665"
+    },
+    {
+      "id": "p11-en",
+      "source": "captions_coco10k.txt",
+      "line": 8404,
+      "language": "en",
+      "kind": "positive",
+      "query": "A headphone-wearing tennis player sits in a slumped posture on a bench.",
+      "targetHash": "91dddfa1113109ae016f00e29c5d73008d53130de17e12bf021fed3594ec2e26"
+    },
+    {
+      "id": "p11-zh",
+      "source": "captions_coco10k.txt",
+      "line": 8404,
+      "language": "zh",
+      "kind": "positive",
+      "query": "一名网球运动员戴着耳机，没精打采地瘫坐在长椅上。",
+      "targetHash": "91dddfa1113109ae016f00e29c5d73008d53130de17e12bf021fed3594ec2e26"
+    },
+    {
+      "id": "p12-en",
+      "source": "captions_coco10k.txt",
+      "line": 9306,
+      "language": "en",
+      "kind": "positive",
+      "query": "A woman and several men share an outdoor picnic with a sizeable pizza and beverages.",
+      "targetHash": "e9182bf8abd851782d7cac72ae3ba76a2539cc6c1ba94fb14aca429b950cb374",
+      "notes": "The original line contains a doubled internal space; the target hash preserves it."
+    },
+    {
+      "id": "p12-zh",
+      "source": "captions_coco10k.txt",
+      "line": 9306,
+      "language": "zh",
+      "kind": "positive",
+      "query": "几名男士与一位女士在户外野餐，面前有一个大披萨和饮料。",
+      "targetHash": "e9182bf8abd851782d7cac72ae3ba76a2539cc6c1ba94fb14aca429b950cb374"
+    },
+    {
+      "id": "p13-en",
+      "source": "mixkit_prompts_vid.txt",
+      "line": 10,
+      "language": "en",
+      "kind": "positive",
+      "query": "A close-up food shot pairs crisp browned meat with purple onion and lime, with yellow kitchen equipment out of focus behind it.",
+      "targetHash": "7ab046e05f61f6a93054eb96be665c2dc1073e6111e04320109e06f80886fc7c",
+      "notes": "The source calls the meat likely chicken, not certain. The query deliberately keeps the meat unspecified."
+    },
+    {
+      "id": "p13-zh",
+      "source": "mixkit_prompts_vid.txt",
+      "line": 10,
+      "language": "zh",
+      "kind": "positive",
+      "query": "特写里是酥脆的金黄色肉块，配着紫洋葱和青柠，后方虚焦处有黄色厨房设备。",
+      "targetHash": "7ab046e05f61f6a93054eb96be665c2dc1073e6111e04320109e06f80886fc7c"
+    },
+    {
+      "id": "p14-en",
+      "source": "mixkit_prompts_vid.txt",
+      "line": 550,
+      "language": "en",
+      "kind": "positive",
+      "query": "A river city seen from the air has a suspension bridge for cars and people, plus a separate rail crossing with a train.",
+      "targetHash": "cbc51aacbd5562cad8ebc7e88375a078038dfa3c64084edd67f670c14c1a3b96"
+    },
+    {
+      "id": "p14-zh",
+      "source": "mixkit_prompts_vid.txt",
+      "line": 550,
+      "language": "zh",
+      "kind": "positive",
+      "query": "从空中看一座河边城市：河上有供车和行人通行的悬索桥，火车则从另一条过河线路通过。",
+      "targetHash": "cbc51aacbd5562cad8ebc7e88375a078038dfa3c64084edd67f670c14c1a3b96"
+    },
+    {
+      "id": "p15-en",
+      "source": "mixkit_prompts_vid.txt",
+      "line": 1098,
+      "language": "en",
+      "kind": "positive",
+      "query": "A hand with red-painted nails hovers over a tabletop clock showing 7:00 in red, next to a green pen-like cylinder.",
+      "targetHash": "1e5ae9b0803aabf7b8fbb4a407796b83f66859c3528292a776dd747ccd41556f"
+    },
+    {
+      "id": "p15-zh",
+      "source": "mixkit_prompts_vid.txt",
+      "line": 1098,
+      "language": "zh",
+      "kind": "positive",
+      "query": "桌上时钟用红色数字显示7:00，旁边有绿色笔状物，一只涂红指甲的手悬在上方。",
+      "targetHash": "1e5ae9b0803aabf7b8fbb4a407796b83f66859c3528292a776dd747ccd41556f"
+    },
+    {
+      "id": "p16-en",
+      "source": "mixkit_prompts_vid.txt",
+      "line": 1649,
+      "language": "en",
+      "kind": "positive",
+      "query": "An outdoor band plays among rocks beneath a metal frame, with a striped-shirt drummer and a guitarist with a microphone on a raised platform.",
+      "targetHash": "54038f3487b2ddd3c7bd3a714fa46e07f714891ce0047664a879b38b91888c7b"
+    },
+    {
+      "id": "p16-zh",
+      "source": "mixkit_prompts_vid.txt",
+      "line": 1649,
+      "language": "zh",
+      "kind": "positive",
+      "query": "岩石地带的金属架下有人露天演奏：条纹上衣的鼓手背对镜头，另一个人在高台上拿麦克风并弹吉他。",
+      "targetHash": "54038f3487b2ddd3c7bd3a714fa46e07f714891ce0047664a879b38b91888c7b"
+    },
+    {
+      "id": "p17-en",
+      "source": "mixkit_prompts_vid.txt",
+      "line": 2198,
+      "language": "en",
+      "kind": "positive",
+      "query": "Follow someone in a pale blue T-shirt and necklace moving away along a peeling graffiti wall; a closer camera view leaves rusty stairs out of frame.",
+      "targetHash": "514f05c54c073df4d326b551a685649f3fe563efbaea26e32ba884ca54109f8b"
+    },
+    {
+      "id": "p17-zh",
+      "source": "mixkit_prompts_vid.txt",
+      "line": 2198,
+      "language": "zh",
+      "kind": "positive",
+      "query": "一个穿浅蓝T恤、戴项链的人背向镜头走过破旧涂鸦墙，镜头拉近后原先的锈楼梯不再入画。",
+      "targetHash": "514f05c54c073df4d326b551a685649f3fe563efbaea26e32ba884ca54109f8b"
+    },
+    {
+      "id": "p18-en",
+      "source": "mixkit_prompts_vid.txt",
+      "line": 2749,
+      "language": "en",
+      "kind": "positive",
+      "query": "Find a sunset reflected on quiet water, with a woven thatch roof close to the camera and sand at the waterline.",
+      "targetHash": "e11dbce8b6de3eb35540d0f113cd17b6d7ad6b50e70a6fe1990837684830c608",
+      "notes": "A potentially ambiguous seascape: the foreground thatch structure and sandy shore, not ocean alone, are the intended cues."
+    },
+    {
+      "id": "p18-zh",
+      "source": "mixkit_prompts_vid.txt",
+      "line": 2749,
+      "language": "zh",
+      "kind": "positive",
+      "query": "落日映在平静水面上，镜头前方有编织茅草顶，岸边是沙地。",
+      "targetHash": "e11dbce8b6de3eb35540d0f113cd17b6d7ad6b50e70a6fe1990837684830c608"
+    },
+    {
+      "id": "p19-en",
+      "source": "mixkit_prompts_vid.txt",
+      "line": 3298,
+      "language": "en",
+      "kind": "positive",
+      "query": "A black opening frame gives way to a rock climber in a harness using ropes, with a city skyline on the far horizon.",
+      "targetHash": "bda7db0a8df3ccc854e8017d84e8f64355b1ec0d8efb56d91f252099b9d78811"
+    },
+    {
+      "id": "p19-zh",
+      "source": "mixkit_prompts_vid.txt",
+      "line": 3298,
+      "language": "zh",
+      "kind": "positive",
+      "query": "画面先是黑屏，随后出现系着安全带和绳索的攀岩者，远处还能看到城市天际线。",
+      "targetHash": "bda7db0a8df3ccc854e8017d84e8f64355b1ec0d8efb56d91f252099b9d78811"
+    },
+    {
+      "id": "p20-en",
+      "source": "mixkit_prompts_vid.txt",
+      "line": 3851,
+      "language": "en",
+      "kind": "positive",
+      "query": "In a shadowy stairwell, someone in a checked shirt carries a bicycle wheel with a scarlet rim while the camera closes in from behind.",
+      "targetHash": "1127d849fa7a207f5635f370499b445d3edbda4948f6e48af585d79baa54f45d"
+    },
+    {
+      "id": "p20-zh",
+      "source": "mixkit_prompts_vid.txt",
+      "line": 3851,
+      "language": "zh",
+      "kind": "positive",
+      "query": "昏暗楼梯间里，一个穿格子衬衫的人抱着红色轮圈的自行车轮，镜头从后方逐渐拉近。",
+      "targetHash": "1127d849fa7a207f5635f370499b445d3edbda4948f6e48af585d79baa54f45d"
+    },
+    {
+      "id": "p21-en",
+      "source": "mixkit_prompts_vid.txt",
+      "line": 4398,
+      "language": "en",
+      "kind": "positive",
+      "query": "Outside in greenery, a girl in pink bunny ears bends toward something on the ground while her friend in a white headband holds a blue item.",
+      "targetHash": "d73428c96f310d94ac62287c6ce6b7d4f3f3004db66a4989bd79c178b9edfc3f"
+    },
+    {
+      "id": "p21-zh",
+      "source": "mixkit_prompts_vid.txt",
+      "line": 4398,
+      "language": "zh",
+      "kind": "positive",
+      "query": "户外绿地上，戴粉色兔耳、穿粉花裙的女孩弯腰看地面，旁边戴白发箍的女孩拿着蓝色东西。",
+      "targetHash": "d73428c96f310d94ac62287c6ce6b7d4f3f3004db66a4989bd79c178b9edfc3f"
+    },
+    {
+      "id": "p22-en",
+      "source": "mixkit_prompts_vid.txt",
+      "line": 4949,
+      "language": "en",
+      "kind": "positive",
+      "query": "An aging red-hulled boat sits before a larger docked passenger ship and a footbridge, with a bird later flying overhead.",
+      "targetHash": "a0c001e9b98a0de4a776ad6f616e11acd0d76546247b3db02a659257240fa19c",
+      "notes": "The source is uncertain about whether the bird is a seagull, so the query does not require that species."
+    },
+    {
+      "id": "p22-zh",
+      "source": "mixkit_prompts_vid.txt",
+      "line": 4949,
+      "language": "zh",
+      "kind": "positive",
+      "query": "港口前景有条红船身白上层的破旧小船，后方停着大客船，还有行人桥，后来一只鸟飞到小船上方。",
+      "targetHash": "a0c001e9b98a0de4a776ad6f616e11acd0d76546247b3db02a659257240fa19c"
+    },
+    {
+      "id": "p23-en",
+      "source": "mixkit_prompts_vid.txt",
+      "line": 5501,
+      "language": "en",
+      "kind": "positive",
+      "query": "Three street musicians in cowboy hats and traditional Mexican dress perform by red and turquoise walls, with bass, acoustic guitar and percussion.",
+      "targetHash": "c191745da71660e7aee8b67522da964780ef1725e4819f8ea946ac9776e362cf"
+    },
+    {
+      "id": "p23-zh",
+      "source": "mixkit_prompts_vid.txt",
+      "line": 5501,
+      "language": "zh",
+      "kind": "positive",
+      "query": "红色和蓝绿色外墙前，三名戴牛仔帽、穿墨西哥传统服装的男人在街头表演，分别拿着贝斯、木吉他和打击乐器。",
+      "targetHash": "c191745da71660e7aee8b67522da964780ef1725e4819f8ea946ac9776e362cf"
+    },
+    {
+      "id": "p24-en",
+      "source": "mixkit_prompts_vid.txt",
+      "line": 6399,
+      "language": "en",
+      "kind": "positive",
+      "query": "In red theatrical light, a pierced, bearded person in a leather jacket exhales a cloud that hides part of their face against a red backdrop.",
+      "targetHash": "54e89bdce11f41dcdb54bcd46a232846de8cbcc1c370b761d9f23cc289780a48"
+    },
+    {
+      "id": "p24-zh",
+      "source": "mixkit_prompts_vid.txt",
+      "line": 6399,
+      "language": "zh",
+      "kind": "positive",
+      "query": "红色背景和戏剧性灯光下，一个有胡子、面部穿孔、穿皮夹克的人张嘴吐出烟雾，遮住了部分脸。",
+      "targetHash": "54e89bdce11f41dcdb54bcd46a232846de8cbcc1c370b761d9f23cc289780a48"
+    },
+    {
+      "id": "n01-en",
+      "source": null,
+      "line": null,
+      "language": "en",
+      "kind": "negative",
+      "query": "Prove that every finite integral domain is a field, including why each nonzero element has an inverse.",
+      "notes": "Out-of-domain abstract-algebra proof request. Inspect any returned candidates; no automatic abstention is assumed."
+    },
+    {
+      "id": "n02-zh",
+      "source": null,
+      "line": null,
+      "language": "zh",
+      "kind": "negative",
+      "query": "请给出 Raft 共识算法在网络分区后仍保证已提交日志安全性的完整证明。",
+      "notes": "Out-of-domain distributed-systems proof request, not a visual-scene retrieval query."
+    },
+    {
+      "id": "n03-en",
+      "source": null,
+      "line": null,
+      "language": "en",
+      "kind": "negative",
+      "query": "What is the exact amino-acid sequence of human insulin, with the disulfide bond positions annotated?",
+      "notes": "Out-of-domain molecular sequence request; a vaguely related medical image is not an answer."
+    },
+    {
+      "id": "n04-zh",
+      "source": null,
+      "line": null,
+      "language": "zh",
+      "kind": "negative",
+      "query": "请写出任意 n 量子位的量子傅里叶变换矩阵，并逐步证明它是酉矩阵。",
+      "notes": "Out-of-domain quantum-computing derivation. Its lack of an expected source label is diagnostic, not exhaustive negative qrels."
+    }
+  ]
+}

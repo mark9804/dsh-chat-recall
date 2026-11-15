@@ -139,3 +139,11 @@ dist
 .spike/
 .benchmark/
 .DS_Store
+
+# External evaluation corpora are user-supplied, not redistributable fixtures
+/test/test-chunks/
+
+# Private run reports do not belong to the public diagnostic inputs
+/evaluation/*
+!/evaluation/README.md
+!/evaluation/queries.json
