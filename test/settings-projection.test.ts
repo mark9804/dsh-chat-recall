@@ -23,6 +23,7 @@ test('editable settings serialize to an object form with every supported field',
     'envFile',
     'callerSessionIds',
     'autoSync',
+    'autoEmbed',
     'dominantMin',
     'dominantGap',
   ];

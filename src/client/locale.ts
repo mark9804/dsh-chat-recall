@@ -64,16 +64,21 @@ export const en = {
   pickerMore: 'More results are available. Use the next page or narrow your search.',
   embeddingLegend: '2. Outbound embedding permission',
   embeddingHelp:
-    'Independent of local indexing. Semantic search and explicit embedding tools may send allowed conversation text and search queries to the configured embedding provider. This page never starts embedding or semantic search.',
+    'Semantic search and explicit embedding tools may send allowed conversation text and search queries to the configured provider. This permission alone does not start background sends. To allow those, turn on Automatic embedding under Background synchronization.',
   embeddingMode: 'Conversations allowed for outbound embedding',
   embeddingAll: 'All within the local corpus',
   embeddingIds: 'Choose conversations allowed for embedding',
   embeddingSubset:
     'Selected embedding IDs must also belong to the local corpus. “All within the local corpus” includes future additions to that corpus. With local indexing Off, embedding must also be Off.',
-  syncLegend: '3. Local synchronization',
+  syncLegend: '3. Background synchronization',
   autoSync: 'Automatically index the allowed local corpus',
   autoSyncHelp:
-    'Enabling this starts local backfill and committed-message indexing after Save. It does not automatically create embeddings. Off stops background syncing; explicit local indexing tools remain available for the allowed corpus.',
+    'Enabling and saving starts local backfill and indexes newly committed messages. This switch alone sends no text. Turning it off and saving stops background syncing; explicit local indexing tools remain available.',
+  autoEmbed: 'Automatic embedding',
+  autoEmbedHelp:
+    'When enabled and saved, Chat recall sends allowed conversation text to the configured embedding provider in the background. It fills the backlog and embeds newly committed messages that are eligible and still missing vectors. Requests may incur charges. Turn this off and save to stop background embedding without deleting existing vectors.',
+  autoEmbedRequires:
+    'To enable automatic embedding, turn on automatic local indexing and choose an outbound embedding scope within the local corpus.',
   advanced: 'Advanced configuration',
   nodePath: 'Independent Node executable',
   nodeHelp:
@@ -96,8 +101,10 @@ export const en = {
     'I authorize this local indexing scope and understand that automatic indexing, if enabled, starts after saving.',
   outboundConfirm:
     'I authorize sending allowed conversation text and semantic queries to the configured embedding provider when semantic search or explicit embedding tools run.',
+  outboundAutoEmbedConfirm:
+    'I authorize sending allowed conversation text to the configured embedding provider in the background to fill missing vectors for existing and newly committed text. I understand charges may apply. I also authorize sending allowed text and queries when semantic search or explicit embedding tools run.',
   outboundWarning:
-    'Outbound permission is separate from local storage. Review the provider and its data policy before granting access. The confirmation is required again when a non-empty embedding permission, corpus, or environment-file path changes.',
+    'Review the provider and its data policy before granting outbound access. Confirm when enabling automatic embedding, or when saving a non-empty embedding scope after changing that scope, the corpus, or the environment-file path.',
   saveImpact:
     'Saving applies every field atomically. Accepted changes restart the recall worker and invalidate existing search/read cursors. No save occurs until you press Save.',
   save: 'Save configuration',
@@ -122,6 +129,8 @@ export const en = {
   emptySelected: 'A Selected scope needs at least one conversation. Choose Off for no permission.',
   invalidSubset:
     'Embedding permission must be within the local corpus. Turn embedding Off or update its selection.',
+  invalidAutoEmbed:
+    'Turn off automatic embedding or enable automatic local indexing and set an outbound embedding scope before saving.',
   invalidNode: 'Node executable must be “node” or an absolute path.',
   invalidData: 'The local index data directory must be an absolute path.',
   invalidEnv:
@@ -189,16 +198,20 @@ export const zh: Record<TextKey, string> = {
   pickerMore: '还有更多结果，可翻页或缩小搜索范围。',
   embeddingLegend: '2. 嵌入外发权限',
   embeddingHelp:
-    '与本地索引独立。语义搜索和显式嵌入工具可能将已授权会话文本及搜索查询发送到所配置的嵌入服务。此页面不会启动嵌入或语义搜索。',
+    '语义搜索和显式嵌入工具可能将已授权会话文本及搜索查询发送到所配置的嵌入服务。仅授予此权限不会启动后台外发。如需后台外发，请在下方「后台同步」中单独开启「自动补向量」。',
   embeddingMode: '允许向嵌入服务外发的会话',
   embeddingAll: '本地语料范围内的全部会话',
   embeddingIds: '选择允许嵌入的会话',
   embeddingSubset:
     '指定的嵌入会话必须属于本地语料范围。“范围内全部”也包含以后加入语料的会话。本地索引范围关闭时，嵌入权限也必须关闭。',
-  syncLegend: '3. 本地同步',
+  syncLegend: '3. 后台同步',
   autoSync: '自动索引已授权的本地语料',
   autoSyncHelp:
-    '开启并保存后，将开始本地历史回填和已提交消息的增量索引；不会自动生成嵌入。关闭会停止后台同步，但已授权语料仍可由显式工具建立本地索引。',
+    '开启并保存后，将回填本地索引并索引新提交的消息。仅开启此项不会外发文本。关闭并保存会停止后台同步，仍可手动运行本地索引工具。',
+  autoEmbed: '自动补向量',
+  autoEmbedHelp:
+    '开启并保存后，对话回溯会在后台将已授权的会话文本发送到所配置的嵌入服务，首次补齐积压向量，之后只为符合条件、尚缺向量的新正文补齐。服务商可能收费。关闭并保存会停止后台补向量，不会删除已有向量。',
+  autoEmbedRequires: '要开启自动补向量，请先开启自动本地索引，并在本地语料内选择嵌入外发范围。',
   advanced: '高级配置',
   nodePath: '独立 Node 可执行文件',
   nodeHelp:
@@ -219,8 +232,10 @@ export const zh: Record<TextKey, string> = {
   localConfirm: '我授权以上本地索引范围，并理解开启自动索引后会在保存时开始索引。',
   outboundConfirm:
     '我授权在运行语义搜索或显式嵌入工具时，将允许的会话文本与语义查询发送到所配置的嵌入服务。',
+  outboundAutoEmbedConfirm:
+    '我授权在后台将已授权的会话文本发送到所配置的嵌入服务，以补齐已有积压和新正文缺失的向量，并知悉可能产生费用。我也授权语义搜索或显式嵌入工具在运行时发送允许的文本与查询。',
   outboundWarning:
-    '外发权限与本地存储独立。授权前请确认服务商及其数据政策。非空嵌入权限、语料范围或环境文件路径改变时，需要重新确认。',
+    '授权外发前，请查看服务商及其数据政策。开启自动补向量时需要确认；更改嵌入范围、语料范围或环境文件路径后，若保存的嵌入范围非空，也需要确认。',
   saveImpact:
     '保存会一次性提交所有字段。接受配置后将重启检索工作进程，使已有搜索／读取游标失效。点击保存之前不会写入配置。',
   save: '保存配置',
@@ -241,6 +256,7 @@ export const zh: Record<TextKey, string> = {
     '会话 ID 必须每行一个，不得含内部空白或控制字符。请通过选择器选择全部，不要填写“all”。',
   emptySelected: '指定会话模式至少需要选择一个会话。不授权任何会话请选关闭。',
   invalidSubset: '嵌入权限必须处于本地语料范围内。请关闭嵌入或修改会话选择。',
+  invalidAutoEmbed: '请关闭自动补向量，或开启自动本地索引并设置嵌入外发范围，再保存。',
   invalidNode: 'Node 可执行文件必须是“node”或绝对路径。',
   invalidData: '本地索引数据目录必须是绝对路径。',
   invalidEnv: '环境文件必须是绝对路径，不能填写凭证或文件内容。',

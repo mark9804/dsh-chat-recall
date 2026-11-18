@@ -9,6 +9,7 @@ export interface PluginConfig {
   envFile?: string;
   callerSessionIds: string[];
   autoSync: boolean;
+  autoEmbed: boolean;
   dominantMin: number;
   dominantGap: number;
 }

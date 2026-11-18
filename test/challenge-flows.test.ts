@@ -55,6 +55,7 @@ async function fixture(t: TestContext, challenge: ToolUseChallenge) {
     embeddingSessionIds: [],
     callerSessionIds: [id],
     autoSync: false,
+    autoEmbed: false,
     dominantMin: 0.5,
     dominantGap: 0.15,
   });

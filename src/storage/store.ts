@@ -49,6 +49,8 @@ export interface CheckpointsResult {
 }
 export interface EmbedRequest {
   sessionIds?: string[];
+  /** Give the serial worker back to other work after at most one remote batch. */
+  oneBatch?: boolean;
 }
 export interface EmbedResult {
   new: number;
@@ -847,7 +849,7 @@ export async function openStore({
   }
   async function pendingRows(
     sessionIds: string[],
-    visit?: (row: PendingMetadata) => void | Promise<void>,
+    visit?: (row: PendingMetadata) => boolean | Promise<boolean>,
     where = inList('sessionId', sessionIds),
   ): Promise<PendingState> {
     const finish = startTiming('store.pending');
@@ -871,9 +873,8 @@ export async function openStore({
               done.textHash === row.textHash
             ) {
               completedChunks += done.chunks;
-            } else {
+            } else if (!visit || (await visit(row))) {
               pending++;
-              await visit?.(row);
             }
           }
         }
@@ -897,8 +898,9 @@ export async function openStore({
     }
     return vectors;
   }
-  async function embed({ sessionIds }: EmbedRequest = {}): Promise<EmbedResult> {
+  async function embed({ sessionIds, oneBatch = false }: EmbedRequest = {}): Promise<EmbedResult> {
     ready();
+    requireThat(typeof oneBatch === 'boolean');
     const configured = embeddingReady();
     const ids = idsOf(sessionIds);
     let added = 0,
@@ -923,7 +925,10 @@ export async function openStore({
       await upsert(progress, completed);
       queued.length = 0;
     }
+    // Track partially visited blocks as still pending; after the batch limit,
+    // count the rest from metadata only, without loading their source text.
     const state = await pendingRows(ids, async (metadata) => {
+      if (oneBatch && added) return true;
       const block = (
         await rowsOf<IndexedBlock>(
           blocks
@@ -986,17 +991,21 @@ export async function openStore({
             end: part.end,
           },
         });
-        if (queued.length === EMBED_BATCH) await flush();
+        if (queued.length === EMBED_BATCH) {
+          await flush();
+          if (oneBatch) return completion.remaining > 0;
+        }
       }
+      return false;
     });
     await flush();
-    // Rebuild once after the whole successful operation, never per remote batch.
+    // Rebuild once per completed invocation, not for each flush within it.
     await maintainProgressIndex();
     reused += state.completedChunks;
     return {
       new: added,
       reused,
-      remaining: 0,
+      remaining: state.pending,
       remainingUnit: 'blocks',
       spaceId: space?.spaceId ?? null,
     };

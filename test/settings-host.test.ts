@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { PassThrough } from 'node:stream';
+import { setTimeout as delay } from 'node:timers/promises';
 import { Config, apply } from '../dist/host/plugin.js';
 import { snapshotConfig } from '../dist/host/config.js';
 import type { PluginConfig } from '../dist/host/types.js';
@@ -50,6 +51,7 @@ function refs(config = plain()) {
     envFile: new Ref(config.envFile),
     callerSessionIds: new Ref(config.callerSessionIds),
     autoSync: new Ref(config.autoSync),
+    autoEmbed: new Ref(config.autoEmbed),
     dominantMin: new Ref(config.dominantMin),
     dominantGap: new Ref(config.dominantGap),
   };
@@ -59,6 +61,7 @@ test('Host Config retains flat volatile paths, safe defaults and plain saved val
   const parsed = Config({});
   assert.equal(Config.type, 'object');
   assert.deepEqual(Object.keys(Config.dict ?? {}).sort(), [
+    'autoEmbed',
     'autoSync',
     'callerSessionIds',
     'dataPath',
@@ -76,6 +79,7 @@ test('Host Config retains flat volatile paths, safe defaults and plain saved val
   assert.equal(parsed.envFile.get(), undefined);
   assert.equal(parsed.nodePath.get(), 'node');
   assert.equal(parsed.autoSync.get(), true);
+  assert.equal(parsed.autoEmbed.get(), false);
   assert.equal(parsed.dominantMin.get(), 0.5);
   assert.equal(parsed.dominantGap.get(), 0.15);
   assert.deepEqual(Config.simplify(Config({ sessionIds: ['fixture'], autoSync: false })), {
@@ -105,6 +109,8 @@ test('Config normalizes selections and validates all/corpus embedding semantics'
     { embeddingSessionIds: ['fixture'] },
     { embeddingSessionIds: ['all'] },
     { sessionIds: ['fixture'], embeddingSessionIds: ['other'] },
+    { sessionIds: ['fixture'], autoEmbed: true },
+    { sessionIds: ['fixture'], embeddingSessionIds: ['all'], autoSync: false, autoEmbed: true },
     { callerSessionIds: ['all'] },
     { sessionIds: ['  '] },
   ])
@@ -130,6 +136,7 @@ test('Config rejects unsafe paths, empty Node and invalid numeric/schema inputs 
     { dominantGap: 2.1 },
     { dominantGap: -0.1 },
     { autoSync: 'true' },
+    { autoEmbed: 'true' },
     { sessionIds: [null] },
   ];
   for (const input of invalid) {
@@ -212,8 +219,15 @@ class Processes implements SubprocessService {
       for (const line of bytes.toString().trim().split('\n')) {
         const request = JSON.parse(line) as Request;
         handle.requests.push(request);
-        if (request.method === 'status' && handle.holdStatus) continue;
-        const value = request.method === 'status' ? { checkpoints: [] } : {};
+        // Leave embed in flight until the owning worker is stopped.
+        if (request.method === 'embed' || (request.method === 'status' && handle.holdStatus))
+          continue;
+        const value =
+          request.method === 'status'
+            ? { checkpoints: [] }
+            : request.method === 'checkpoints'
+              ? { sessions: [] }
+              : {};
         handle.stdout.push(`${JSON.stringify({ id: request.id, ok: true, value })}\n`);
       }
     });
@@ -406,63 +420,108 @@ test('plain legacy contexts still run directly without optional lifecycle/settin
   await ctx.dispose();
 });
 
-test('volatile reload aborts pending work, awaits confirmed exit, coalesces and uses committed values', async () => {
+test('volatile revocation aborts pending work, waits for confirmed exit and coalesces settings', async () => {
   const ctx = new Context();
-  const config = refs();
-  apply(ctx, config);
-  await flush();
-  await ctx.call();
-  const oldTool = ctx.registered.get('chat_recall_status')!;
-  const process = ctx.subprocess.handles[0];
-  process.holdStatus = true;
-  const exit = gate();
-  process.exitBarrier = exit.promise;
-  const pending = ctx.call();
-  const rejected = assert.rejects(pending, (error: unknown) => {
-    assert.ok(error instanceof Error && 'code' in error);
-    assert.ok(['ABORT_ERR', 'BRIDGE_CLOSED', 'CLOSED'].includes(String(error.code)));
-    return true;
+  ctx.sessionQuery.readSession = async (id) => ({
+    session: { id, createdAt: 1 },
+    inheritedEventCount: 0,
+    events: [
+      {
+        type: 'user/message',
+        seq: 0,
+        time: 1,
+        surfaceOp: 'append',
+        data: {
+          role: 'user',
+          source: { kind: 'user' },
+          content: [{ type: 'text', text: 'fixture' }],
+        },
+      },
+    ],
   });
-  await flush();
-  config.nodePath.value = 'new-node';
-  config.dataPath.value = '/synthetic/new-index';
-  config.envFile.value = '/synthetic/new.env';
-  config.sessionIds.value = ['selected'];
-  config.embeddingSessionIds.value = ['all'];
-  config.dominantMin.value = 0.7;
-  config.dominantGap.value = 0.25;
-  ctx.update();
-  await rejected;
-  await assert.rejects(
-    oldTool.execute({}, { agent: { id: 'caller' }, signal: new AbortController().signal }),
-    { code: 'CLOSED' },
+  const config = refs(
+    plain({
+      sessionIds: ['fixture'],
+      embeddingSessionIds: ['fixture'],
+      autoSync: true,
+      autoEmbed: true,
+    }),
   );
-  await flush();
-  assert.equal(ctx.children.length, 1, 'waits for subprocess quiescence');
-  assert.equal(ctx.registered.size, 0);
-  config.nodePath.value = 'latest-node';
-  ctx.update();
-  ctx.update();
-  await flush();
-  assert.equal(ctx.children.length, 1);
-  exit.resolve();
-  await flush();
-  assert.equal(ctx.children.length, 2, 'intermediate snapshots never mount');
-  assert.equal(ctx.registered.size, 4);
-  assert.equal(ctx.subprocess.handles.length, 1, 'replacement is lazy');
-  await ctx.call();
-  const next = ctx.subprocess.handles[1];
-  assert.equal(next.spec.argv[0], 'latest-node');
-  assert.ok(next.spec.argv.includes('--env-file=/synthetic/new.env'));
-  assert.equal(next.spec.argv.at(-1), '/synthetic/new-index');
-  assert.deepEqual(next.requests[0], {
-    id: 1,
-    method: 'configure',
-    params: { embeddingEnabled: true, candidatePolicy: { dominantMin: 0.7, dominantGap: 0.25 } },
-  });
-  assert.equal(ctx.subprocess.maximumAlive, 1);
-  assert.equal(ctx.policies.length, 1);
-  await ctx.dispose();
+  const exit = gate();
+  const waitFor = async (worker: number, method: string) => {
+    const signal = AbortSignal.timeout(3000);
+    for (;;) {
+      const request = ctx.subprocess.handles[worker]?.requests.find(
+        (entry) => entry.method === method,
+      );
+      if (request) return request;
+      assert.ok(!signal.aborted, `worker ${worker + 1} never received ${method}`);
+      await delay(10);
+    }
+  };
+  try {
+    apply(ctx, config);
+    assert.deepEqual((await waitFor(0, 'embed')).params, {
+      sessionIds: ['fixture'],
+      oneBatch: true,
+    });
+    const oldTool = ctx.registered.get('chat_recall_status')!;
+    const old = ctx.subprocess.handles[0];
+    old.holdStatus = true;
+    old.exitBarrier = exit.promise;
+    const pending = ctx.call();
+    void pending.catch(() => {});
+    await waitFor(0, 'status');
+
+    config.nodePath.value = 'new-node';
+    config.dataPath.value = '/synthetic/new-index';
+    config.envFile.value = '/synthetic/new.env';
+    config.sessionIds.value = ['selected'];
+    config.embeddingSessionIds.value = [];
+    config.autoEmbed.value = false;
+    config.dominantMin.value = 0.7;
+    config.dominantGap.value = 0.25;
+    ctx.update();
+    await assert.rejects(pending, { code: 'WORKER_INTERRUPTED' });
+    await assert.rejects(
+      oldTool.execute({}, { agent: { id: 'caller' }, signal: new AbortController().signal }),
+      { code: 'CLOSED' },
+    );
+    await flush();
+    assert.equal(old.alive, false, 'abort stops the worker with an embed in flight');
+    assert.equal(ctx.registered.size, 0);
+    config.nodePath.value = 'latest-node';
+    ctx.update();
+    ctx.update();
+    await flush();
+    assert.equal(ctx.children.length, 1, 'direct exit alone does not permit replacement');
+    exit.resolve();
+
+    await waitFor(1, 'sync'); // Let the replacement's automatic local indexing actually run.
+    const status = (await ctx.call()) as { autoEmbed: boolean; configuredSessions: string[] };
+    assert.equal(status.autoEmbed, false);
+    assert.deepEqual(status.configuredSessions, ['selected']);
+    assert.equal(ctx.children.length, 2, 'intermediate snapshots never mount');
+    assert.equal(ctx.registered.size, 4);
+    const next = ctx.subprocess.handles[1];
+    assert.equal(next.spec.argv[0], 'latest-node');
+    assert.ok(next.spec.argv.includes('--env-file=/synthetic/new.env'));
+    assert.equal(next.spec.argv.at(-1), '/synthetic/new-index');
+    assert.deepEqual(next.requests[0], {
+      id: 1,
+      method: 'configure',
+      params: { embeddingEnabled: false, candidatePolicy: { dominantMin: 0.7, dominantGap: 0.25 } },
+    });
+    assert.equal(
+      next.requests.some(({ method }) => method === 'embed'),
+      false,
+    );
+    assert.equal(ctx.subprocess.maximumAlive, 1);
+    assert.equal(ctx.policies.length, 1);
+  } finally {
+    exit.resolve();
+    await ctx.dispose();
+  }
   assert.ok(ctx.subprocess.handles.every((handle) => !handle.alive));
   assert.equal(ctx.registered.size, 0);
 });

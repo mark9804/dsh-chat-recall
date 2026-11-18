@@ -1,0 +1,2 @@
+# Index the plugin itself; index reference submodules separately when needed.
+/reference/

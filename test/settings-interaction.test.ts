@@ -74,6 +74,7 @@ const config = (patch: Partial<Configuration> = {}): Configuration => ({
   embeddingSessionIds: [],
   callerSessionIds: [],
   autoSync: true,
+  autoEmbed: false,
   dominantMin: 0.5,
   dominantGap: 0.15,
   ...patch,
@@ -101,7 +102,7 @@ function store<T>(snapshot: T) {
 }
 
 async function mount(
-  base = config(),
+  base: unknown = config(),
   options: { writable?: boolean; reject?: boolean; ambiguous?: boolean; catalogSize?: number } = {},
 ) {
   const writable = options.writable ?? true;
@@ -267,35 +268,62 @@ async function input(node: HTMLInputElement, value: string) {
 }
 
 // Each test owns and unmounts its root; no component snapshot or fake React runtime.
-test('real Base UI scope, switch and permission checkboxes preserve explicit grants and one revision mutation', async () => {
-  const ui = await mount();
+test('manual embedding permission stays manual until background embedding is confirmed and saved', async () => {
+  const ui = await mount(config({ autoSync: false }));
   try {
     assert.equal(ui.ensures, 1);
-    assert.equal(ui.mutations.length, 0);
-    const groups = ui.container.querySelectorAll('[role="radiogroup"]');
-    assert.equal(groups.length, 2);
-    assert.equal(element<HTMLButtonElement>(ui.container, 'button[type="submit"]').disabled, true);
+    const { container, formStore, mutations } = ui;
+    const toggle = element<HTMLButtonElement>(container, '[role="switch"][id$="-auto-embed"]');
+    const sync = element(container, '[role="switch"][id$="-auto-sync"]');
+    const submit = element<HTMLButtonElement>(container, 'button[type="submit"]');
+    const outbound = '[role="checkbox"][aria-labelledby$="-confirm-outbound-label"]';
+    const persisted = () => formStore.getSnapshot().value as Configuration;
+    const groups = container.querySelectorAll('[role="radiogroup"]');
+
+    assert.equal(toggle.disabled, true);
+    assert.equal(submit.disabled, true);
     await click(groups[0]!.querySelectorAll('[role="radio"]')[2]!);
     await click(groups[1]!.querySelectorAll('[role="radio"]')[2]!);
-    const confirmations = ui.container.querySelectorAll('.cr-confirmations [role="checkbox"]');
-    assert.equal(confirmations.length, 2);
-    assert.equal(element<HTMLButtonElement>(ui.container, 'button[type="submit"]').disabled, true);
-    await click(confirmations[0]!);
-    assert.equal(element<HTMLButtonElement>(ui.container, 'button[type="submit"]').disabled, true);
-    await click(confirmations[1]!);
-    assert.equal(element<HTMLButtonElement>(ui.container, 'button[type="submit"]').disabled, false);
-    await click(element(ui.container, 'button[type="submit"]'));
-    assert.equal(ui.mutations.length, 1);
-    assert.equal(ui.mutations[0]!.revision, 7);
-    assert.equal(ui.mutations[0]!.ops.length, 9);
-    const value = ui.formStore.getSnapshot().value as Configuration;
-    assert.deepEqual([...value.sessionIds], ['all']);
-    assert.deepEqual([...value.embeddingSessionIds], ['all']);
-    assert.match(ui.container.textContent ?? '', /Configuration saved/);
-    const toggle = element<HTMLElement>(ui.container, '[role="switch"]');
+    assert.equal(toggle.disabled, true, 'outbound permission alone is not enough');
+    await click(sync);
+    assert.equal(toggle.disabled, false);
+    assert.equal(submit.disabled, true);
+    await click(element(container, '[role="checkbox"][aria-labelledby$="-confirm-local-label"]'));
+    assert.equal(submit.disabled, true);
+    await click(element(container, outbound));
+    await click(submit);
+    const manual = persisted();
+    assert.deepEqual([...manual.sessionIds], ['all']);
+    assert.deepEqual([...manual.embeddingSessionIds], ['all']);
+    assert.equal(manual.autoSync, true);
+    assert.equal(manual.autoEmbed, false);
+
+    const summary = element(container, '.cr-summary');
+    const savedSummary = summary.textContent;
     await click(toggle);
-    assert.equal(toggle.getAttribute('aria-checked'), 'false');
-    assert.equal(ui.mutations.length, 1, 'draft edits never auto-save');
+    assert.equal(toggle.getAttribute('aria-checked'), 'true');
+    assert.equal(submit.disabled, true, 'existing outbound permission does not confirm autoEmbed');
+    await click(element(container, outbound));
+    assert.equal(persisted().autoEmbed, false, 'confirmation alone does not save');
+    assert.equal(summary.textContent, savedSummary, 'the summary shows only saved values');
+    await click(submit);
+    assert.equal(persisted().autoEmbed, true);
+    assert.notEqual(summary.textContent, savedSummary);
+
+    await click(sync);
+    assert.equal(toggle.getAttribute('aria-checked'), 'true');
+    assert.equal(submit.disabled, true);
+    await click(toggle);
+    assert.equal(toggle.disabled, true);
+    assert.equal(submit.disabled, false, 'stopping background embedding needs no new grant');
+    await click(submit);
+    const stopped = persisted();
+    assert.equal(stopped.autoSync, false);
+    assert.equal(stopped.autoEmbed, false);
+    assert.deepEqual(
+      mutations.map(({ revision }) => revision),
+      [7, 8, 9],
+    );
   } finally {
     await ui.close();
   }
@@ -384,18 +412,16 @@ test('mirror refresh cannot overwrite a dirty or rejected draft; rebase retains 
 });
 
 test('a concurrent mirror revision cannot silently save a dirty draft over newer values', async () => {
-  const ui = await mount();
+  const base = config({ sessionIds: ['all'], embeddingSessionIds: ['all'] });
+  const ui = await mount(base);
   try {
-    await click(
-      ui.container
-        .querySelectorAll('[role="radiogroup"]')[0]!
-        .querySelectorAll('[role="radio"]')[2]!,
-    );
+    const toggle = element(ui.container, '[role="switch"][id$="-auto-embed"]');
+    await click(toggle);
     await click(element(ui.container, '.cr-confirmations [role="checkbox"]'));
     await React.act(async () =>
       ui.formStore.publish({
         status: 'ready',
-        value: config({ nodePath: '/synthetic/newer' }),
+        value: { ...base, nodePath: '/synthetic/newer' },
         revision: 8,
         writable: true,
       }),
@@ -407,15 +433,11 @@ test('a concurrent mirror revision cannot silently save a dirty draft over newer
       7,
       'never substitutes the newest revision behind a dirty draft',
     );
-    assert.equal((ui.formStore.getSnapshot().value as Configuration).nodePath, '/synthetic/newer');
+    const persisted = ui.formStore.getSnapshot().value as Configuration;
+    assert.equal(persisted.nodePath, '/synthetic/newer');
+    assert.equal(persisted.autoEmbed, false);
     assert.match(ui.container.textContent ?? '', /draft is preserved/);
-    assert.equal(
-      ui.container
-        .querySelectorAll('[role="radiogroup"]')[0]!
-        .querySelectorAll('[role="radio"]')[2]!
-        .getAttribute('aria-checked'),
-      'true',
-    );
+    assert.equal(toggle.getAttribute('aria-checked'), 'true');
   } finally {
     await ui.close();
   }
@@ -495,17 +517,34 @@ test('keyboard controls, label associations and disabled actions keep native for
   }
 });
 
-test('read-only and ambiguous settings never mutate; locale updates remain reactive', async () => {
-  for (const options of [{ writable: false }, { ambiguous: true }]) {
-    const ui = await mount(config(), options);
+test('read-only, ambiguous and old Host settings never mutate; locale updates remain reactive', async () => {
+  const current = config({ sessionIds: ['all'], embeddingSessionIds: ['all'], autoEmbed: true });
+  const { autoEmbed: _autoEmbed, ...old } = current;
+  for (const [value, options] of [
+    [current, { writable: false }],
+    [current, { ambiguous: true }],
+    [old, {}],
+  ] as const) {
+    const ui = await mount(value, options);
     try {
-      assert.equal(ui.mutations.length, 0);
+      const toggle = ui.container.querySelector<HTMLButtonElement>(
+        '[role="switch"][id$="-auto-embed"]',
+      );
       const submit = ui.container.querySelector<HTMLButtonElement>('button[type="submit"]');
-      assert.ok(!submit || submit.disabled);
-      if (submit) await click(submit);
+      if ('writable' in options && options.writable === false) {
+        assert.ok(toggle?.disabled && submit?.disabled);
+        await click(toggle);
+        assert.equal(toggle.getAttribute('aria-checked'), 'true');
+        await click(submit);
+        const heading = element(ui.container, 'h1');
+        const title = heading.textContent;
+        await React.act(async () => ui.locale.publish({ active: 'zh', revision: 1 }));
+        assert.notEqual(heading.textContent, title);
+      } else {
+        assert.equal(toggle, null);
+        assert.equal(submit, null);
+      }
       assert.equal(ui.mutations.length, 0);
-      await React.act(async () => ui.locale.publish({ active: 'zh', revision: 1 }));
-      assert.match(ui.container.textContent ?? '', /对话回溯/);
     } finally {
       await ui.close();
     }

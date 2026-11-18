@@ -3,9 +3,10 @@ import { homedir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
 import type { PluginConfig } from './types.js';
 
+type SettingsValues = Omit<PluginConfig, 'autoEmbed'> & { autoEmbed?: boolean };
 /** Volatile references are structural so ordinary configs remain usable by embedders/tests. */
 export type SettingsConfig = {
-  [K in keyof PluginConfig]: Readonly<PluginConfig[K]> | { get(): Readonly<PluginConfig[K]> };
+  [K in keyof SettingsValues]: Readonly<SettingsValues[K]> | { get(): Readonly<SettingsValues[K]> };
 };
 
 function unwrap<T>(value: T | { get(): T }): T {
@@ -87,6 +88,12 @@ const fields = Schema.object({
     .description(
       'Backfill configured sessions and process committed event tails in the background.',
     ),
+  autoEmbed: Schema.boolean()
+    .default(false)
+    .volatile()
+    .description(
+      'Automatically send authorized text to fill missing vectors. Requires autoSync and a nonempty embeddingSessionIds scope.',
+    ),
   dominantMin: Schema.number()
     .min(0)
     .max(1)
@@ -113,13 +120,24 @@ function values(config: SettingsConfig): PluginConfig {
     ...(envFile == null ? {} : { envFile }),
     callerSessionIds: [...unwrap(config.callerSessionIds)],
     autoSync: unwrap(config.autoSync),
+    autoEmbed: unwrap(config.autoEmbed) ?? false,
     dominantMin: unwrap(config.dominantMin),
     dominantGap: unwrap(config.dominantGap),
   };
 }
 
 function validateEmbedding(config: SettingsConfig): void {
-  const { sessionIds: corpus, embeddingSessionIds: embedding } = values(config);
+  const {
+    sessionIds: corpus,
+    embeddingSessionIds: embedding,
+    autoSync,
+    autoEmbed,
+  } = values(config);
+  if (autoEmbed && (!autoSync || !embedding.length))
+    throw new Schema.ValidationError(
+      'autoEmbed requires autoSync and a nonempty embeddingSessionIds scope.',
+      { path: ['autoEmbed'] },
+    );
   if (
     embedding.length &&
     (!corpus.length ||

@@ -77,12 +77,12 @@ prepack执行build，postpack清理生成目录。源码链接安装期间必须
 | --- | --- |
 | 纯函数 | [分块](<../test/core-chunking.test.ts>)、[候选](<../test/core-candidates.test.ts>)、[cursor](<../test/core-cursors.test.ts>)、[设置模型](<../test/settings-client-model.test.ts>) |
 | 数据层 | [真实LanceDB store](<../test/production-store.test.ts>)、[增量同步](<../test/production-sync.test.ts>)、[来源事件提取](<../test/session-text.test.ts>) |
-| Host/worker | [桥接](<../test/bridge.test.ts>)、[生产Host](<../test/production-host.test.ts>)、[配置生命周期](<../test/settings-host.test.ts>)、[内容核验](<../test/acceptance-content.test.ts>) |
+| Host/worker | [桥接](<../test/bridge.test.ts>)、[生产Host（含后台补向量）](<../test/production-host.test.ts>)、[配置生命周期](<../test/settings-host.test.ts>)、[内容核验](<../test/acceptance-content.test.ts>) |
 | 交互与产物 | [真实React/Base UI合成DOM交互](<../test/settings-interaction.test.ts>)、[Client产物](<../test/settings-artifact.test.ts>)、[依赖分发](<../test/packaging.test.ts>) |
 | 多轮检索 | [合成挑战](<../test/challenge-flows.test.ts>)：完整遍历搜索cursor、逐引用核验、长文read续页及篡改拒绝 |
 | worker协议 | [JSONL状态机](<../test/worker-protocol.test.ts>)：ready、configure前拒绝访问、单次配置与串行响应 |
 
-默认回归不读取真实会话或凭据，不需要外部embedding服务；向量来自合成embedder，HTTP使用本地fixture。实际启动的Node worker由测试等待退出。数据构造约定见[合成fixture说明](<../test/fixtures/README.md>)。
+默认回归使用合成会话和向量；Host 端到端测试启动真实 Node worker 并等待退出，HTTP 仅用本地 fixture。不读取真实会话或凭据，不调用外部 embedding 服务。数据构造约定见[合成fixture说明](<../test/fixtures/README.md>)。
 
 ### 按数据不变量组织断言
 
@@ -90,7 +90,7 @@ prepack执行build，postpack清理生成目录。源码链接安装期间必须
 | --- | --- |
 | 事件 → 消息／文本块 | 原seq、blockIndex、来源与附件集合不丢失；相同文字不是相同来源；缓存不得替代不可读或已变更的原事件 |
 | session checkpoint／journal | 只有完整批次写入后才推进checkpoint；重放幂等；中断后恢复，不能查询半提交结果 |
-| embedding空间／进度 | 本地同步不外发；仅缺失chunk进入授权embedder；失败保留已提交向量；模型空间不混用 |
+| embedding空间／进度 | 本地同步本身不外发；只补已授权的缺失分块；失败保留已提交向量；不混用向量空间 |
 | 搜索／读取快照 | cursor绑定调用者与查询条件；续页不重复embedding，结果顺序固定；篡改、到期与重启明确失败 |
 | worker run／pending请求 | ready前不发请求；取消不自动重放；直接命令退出不等于受管范围退出；退出确认失败不能替代 |
 | 配置基线／草稿／revision | 新目录不自动选入；嵌入范围受本地语料约束；授权改变重置确认；冲突或拒绝不得覆盖草稿 |
@@ -99,7 +99,7 @@ prepack执行build，postpack清理生成目录。源码链接安装期间必须
 
 [Host测试辅助函数](<../test/helpers/host.ts>)只复用真实Node启动适配，不统一不同的源读取fixture，也不模拟真实DSH provider的受管范围。合成题库中的无证据、历史指令和未测指标场景仍可用于人工／模型评估；仅检查题面字符串不能证明拒答能力、prompt-injection防护或模型引用正确，因此不计入自动行为保证。
 
-合成DOM不验证真实DSH布局、主题对照、屏幕阅读器或浏览器默认事件。修改UI后仍需在真实DSH设置页检查窄／宽布局、深／浅主题、焦点、键盘和拒写反馈。slot注册成功不等于视图已渲染；fixture生命周期测试也不能代替实际Loader/provider集成。后台autoSync目前覆盖了发现期间的退出竞态，但没有完整的事件标dirty到后台增量落库端到端用例，不能从显式sync通过推定这一链路已被回归覆盖。
+合成DOM不验证真实DSH布局、主题对照、屏幕阅读器或浏览器默认事件。修改UI后仍需在真实DSH设置页检查窄／宽布局、深／浅主题、焦点、键盘和拒写反馈。slot注册成功不等于视图已渲染；fixture生命周期测试也不能代替实际Loader/provider集成。
 
 ### 定向调试
 

@@ -44,6 +44,7 @@ export interface Configuration {
   embeddingSessionIds: string[];
   callerSessionIds: string[];
   autoSync: boolean;
+  autoEmbed: boolean;
   dominantMin: number;
   dominantGap: number;
 }
@@ -56,6 +57,7 @@ export interface Draft {
   embedding: ScopeDraft;
   callers: string;
   autoSync: boolean;
+  autoEmbed: boolean;
   dominantMin: string;
   dominantGap: string;
 }
@@ -88,6 +90,8 @@ export function normalizeScope(ids: readonly string[]): string[] {
   return normalized.includes('all') ? ['all'] : normalized;
 }
 
+// The Host resolves defaults even for older stored configurations. A snapshot
+// missing autoEmbed is not safe to edit with this version of the form.
 export function configuration(value: unknown): Configuration | null {
   if (
     !record(value) ||
@@ -98,6 +102,7 @@ export function configuration(value: unknown): Configuration | null {
     !strings(value.embeddingSessionIds) ||
     !strings(value.callerSessionIds) ||
     typeof value.autoSync !== 'boolean' ||
+    typeof value.autoEmbed !== 'boolean' ||
     typeof value.dominantMin !== 'number' ||
     typeof value.dominantGap !== 'number'
   )
@@ -110,6 +115,7 @@ export function configuration(value: unknown): Configuration | null {
     embeddingSessionIds: normalizeScope(value.embeddingSessionIds),
     callerSessionIds: [...new Set(value.callerSessionIds)],
     autoSync: value.autoSync,
+    autoEmbed: value.autoEmbed,
     dominantMin: value.dominantMin,
     dominantGap: value.dominantGap,
   };
@@ -131,6 +137,7 @@ export function draftOf(value: Configuration): Draft {
     embedding: scopeDraft(value.embeddingSessionIds),
     callers: value.callerSessionIds.join('\n'),
     autoSync: value.autoSync,
+    autoEmbed: value.autoEmbed,
     dominantMin: String(value.dominantMin),
     dominantGap: String(value.dominantGap),
   };
@@ -317,6 +324,10 @@ export function sameSet(a: readonly string[], b: readonly string[]): boolean {
   return a.length === b.length && a.every((id) => b.includes(id));
 }
 
+export function canAutoEmbed(autoSync: boolean, embeddingSessionIds: readonly string[]): boolean {
+  return autoSync && embeddingSessionIds.length > 0;
+}
+
 export function validate(draft: Draft): Validation {
   const errors: TextKey[] = [];
   const sessionIds = scopeIds(draft.corpus);
@@ -335,6 +346,8 @@ export function validate(draft: Draft): Validation {
       (draft.embedding.mode !== 'all' && !subset(embeddingSessionIds, sessionIds)))
   )
     errors.push('invalidSubset');
+  if (draft.autoEmbed && !canAutoEmbed(draft.autoSync, embeddingSessionIds))
+    errors.push('invalidAutoEmbed');
   const nodePath = draft.nodePath.trim();
   const dataPath = draft.dataPath.trim();
   const envFile = draft.envFile.trim();
@@ -367,6 +380,7 @@ export function validate(draft: Draft): Validation {
       embeddingSessionIds,
       callerSessionIds,
       autoSync: draft.autoSync,
+      autoEmbed: draft.autoEmbed,
       dominantMin,
       dominantGap,
     },
@@ -384,12 +398,14 @@ export function confirmations(
     local:
       !subset(next.sessionIds, base.sessionIds) ||
       (!base.autoSync && next.autoSync && next.sessionIds.length > 0),
-    // Conservative: any changed non-empty grant/corpus/destination asks again.
+    // Background sends require explicit confirmation even for an existing grant.
+    // Changed non-empty grants, corpus, and destination still ask again.
     outbound:
-      next.embeddingSessionIds.length > 0 &&
-      (!sameSet(next.embeddingSessionIds, base.embeddingSessionIds) ||
-        !sameSet(next.sessionIds, base.sessionIds) ||
-        next.envFile !== base.envFile),
+      (!base.autoEmbed && next.autoEmbed) ||
+      (next.embeddingSessionIds.length > 0 &&
+        (!sameSet(next.embeddingSessionIds, base.embeddingSessionIds) ||
+          !sameSet(next.sessionIds, base.sessionIds) ||
+          next.envFile !== base.envFile)),
   };
 }
 
@@ -401,6 +417,7 @@ export function operations(value: Configuration): SettingsPathOp[] {
     'embeddingSessionIds',
     'callerSessionIds',
     'autoSync',
+    'autoEmbed',
     'dominantMin',
     'dominantGap',
   ] as const;

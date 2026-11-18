@@ -435,34 +435,34 @@ test('embedding is explicit and incremental across reopen; metadata-only sync se
   );
 });
 
-test('failed embedding preserves committed vectors and resumes missing chunks without resubmitting them', async (t) => {
+test('a split block stays pending across a limited batch, a failed batch, and reopen', async (t) => {
   const embedder = fakeEmbedder({ failCall: 2 });
   const { root, store } = await fixture(t, { embedder });
-  const text = Array.from(
-    { length: 70 },
-    (_, index) => `Part ${index}: ` + String.fromCharCode(65 + (index % 26)).repeat(590),
-  ).join('\n\n');
-  const parts = chunkText(text);
-  assert.ok(parts.length > 32);
+  const text = Array.from({ length: 34 }, (_, index) => `${index}: ${'x'.repeat(590)}`).join(
+    '\n\n',
+  );
+  const parts = chunkText(text).map((part) => part.text);
   await store.sync(batch('synthetic', [{ seq: 0, text }]));
-  await assert.rejects(store.embed({ sessionIds: ['synthetic'] }), rejects('NETWORK_ERROR'));
+  const params = { sessionIds: ['synthetic'], oneBatch: true };
+  const first = await store.embed(params);
+  assert.deepEqual([first.new, first.remaining], [32, 1]);
+  const missing = parts.slice(32);
+  await assert.rejects(store.embed(params), rejects('NETWORK_ERROR'));
+  assert.deepEqual(embedder.calls, [parts.slice(0, 32), missing]);
   const status = await store.status();
   assert.equal(status.counts.vectors, 32);
   assert.equal(status.pending, 1);
-  assert.equal((await store.search(query('Part 0:'))).hits.length, 1);
+  assert.equal((await store.search(query('0: '))).hits.length, 1);
   await store.close();
   const resumed = fakeEmbedder();
   const reopened = await openStore({ root, embedder: resumed });
   t.after(() => reopened.close());
-  const result = await reopened.embed({ sessionIds: ['synthetic'] });
-  assert.equal(result.reused, 32);
-  assert.equal(result.new, parts.length - 32);
-  assert.deepEqual(
-    resumed.calls.flat(),
-    parts.slice(32).map((part) => part.text),
-  );
-  assert.equal((await reopened.status()).counts.vectors, parts.length);
-  assert.equal((await reopened.status()).pending, 0);
+  const result = await reopened.embed(params);
+  assert.deepEqual([result.reused, result.new, result.remaining], [32, missing.length, 0]);
+  assert.deepEqual(resumed.calls.flat(), missing);
+  const complete = await reopened.status();
+  assert.equal(complete.counts.vectors, parts.length);
+  assert.equal(complete.pending, 0);
 });
 
 test('model space conflict refuses semantic and embedding but preserves vectors and lexical access', async (t) => {

@@ -171,9 +171,8 @@ DSH 的 `readEvent` 可读取或准备完整日志，接口没有承诺 byte-ran
 
 本地文本授权与外发授权分开：`embeddingSessionIds` 必须在非空配置语料内生效。
 其中 `["all"]` 表示覆盖配置语料，不表示所有 DSH 会话；任何工具 scope 都不能扩大它。
-启动同步、事件 dirty 调度、exact/fuzzy 和 read 不生成 embedding 请求。
-显式 `status` 的 embed 动作，以及单会话 semantic 搜索的缺失向量追平，可发送合格文本分块。
-多会话 semantic 搜索使用已有向量，不为整个大范围自动补齐；coverage 反映 pending。
+显式 `chat_recall_status` 的 `embed` 动作和单会话 semantic 首查可补齐缺失向量；这两条外发路径不依赖 `autoEmbed`，仍受外发授权限制。
+多会话 semantic 搜索使用已有向量；coverage 反映 pending。
 非空可搜索向量范围的 semantic 首次查询还会发送 query；继续 cursor 页不发送 query。
 
 [worker](<../src/worker/main.ts>)仅在 configure 允许 embedding 时构造 embedder，从自身环境读取配置。
@@ -182,8 +181,7 @@ DSH 的 `readEvent` 可读取或准备完整日志，接口没有承诺 byte-ran
 正文请求不附带会话元数据，但用户文本本身可能包含敏感信息；目的服务由部署配置决定。
 HTTP 禁止 redirect，校验返回索引、数量、维度与有限数值；错误不保留响应体或原始异常原因。
 endpoint/model/dimensions/编码共同定义 space；改变空间不会静默混用既有向量。
-[存储](<../src/storage/store.ts>)每个成功的远程批次先提交向量，再在整块完成时提交进度，失败后可复用已提交 chunk。
-当前远程存储批次为 32 个 chunk；进度索引只是加速项，维护失败不抹去已经提交的结果。
+[存储](<../src/storage/store.ts>)每个成功的远程批次先提交向量，再在整块完成时提交进度。重试复用已提交的分块；进度索引维护失败也不抹去提交结果。
 
 ## 7. Host 配置与运行代次
 
@@ -219,8 +217,12 @@ transition 关闭失败后保持 fail-closed，后续保存不恢复该链；需
 | `ctx.effect` cleanup | 置 closing、abort 当前代次、清 timer，等待 bridge 与同步任务结束。 |
 
 `session/event` 是提交后的 fire-and-forget 通知，不是可阻止提交的 waterfall。
-关闭 autoSync 会停止启动回填及事件后台入队，但工具的显式同步路径仍可运行。
+关闭 `autoSync` 停止后台回填和事件入队，不影响工具按需同步。
 插件不监听逐 token assistant stream，也不通过 Agent 生命周期去恢复会话来做索引。
+
+后台队列每会话至多一条。启用 `autoEmbed` 后，只为同时获本地与外发授权且文本同步成功的会话补向量：启动查积压，新增合格正文也会入队，工具前置同步不等待后台补齐。后台沿用 worker 分批，每次最多发送 32 个缺失分块，有剩余就排回队尾。
+
+补向量失败记入 `autoEmbedErrors`，不回退文本 checkpoint，也不定时重试。合格新正文、重新加载启用配置或显式 `embed` 可再尝试；只有标题或轮次变化不触发重试。关闭自动补齐或收回授权会取消旧代次并等待退出屏障；已发请求无法撤回。
 
 ## 9. Bridge、取消与退出屏障
 
@@ -257,9 +259,9 @@ mounted 标记阻止异步保存完成后更新已卸载组件，saving 标记�
 
 ## 11. 保留、覆盖与运行边界
 
-缩小语料、关闭 embedding、关闭 autoSync 或卸载插件都不自动删除已有本地索引、向量或 journal。
+缩小语料、关闭外发授权、关闭 `autoEmbed`／`autoSync` 或卸载插件都不自动删除已有本地索引、向量或 journal。
 搜索 cursor 的 TTL 使分页失效，不等于删除已落盘的搜索快照；done journal 也没有自动清理策略。
-停用授权只限制后续允许的操作，不能撤回已发送到 embedding 服务的文本或已有会话中的工具输出。
+停用授权不会删除已有会话中的工具输出。
 数据目录是持久派生数据，不是随 fiber 释放的临时资源；物理清理需由部署方单独管理。
 
 状态中的全库计数描述本地存储，而非某次查询的授权覆盖；使用返回的 scope、checkpoint、pending 和截断信息判断范围。

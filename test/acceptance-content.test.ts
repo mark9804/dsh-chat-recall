@@ -125,6 +125,7 @@ async function fixture(t: TestContext, events: SessionEvent[]) {
     embeddingSessionIds: [],
     callerSessionIds: [sessionId],
     autoSync: false,
+    autoEmbed: false,
     dominantMin: 0.5,
     dominantGap: 0.15,
   });

@@ -53,6 +53,10 @@ autoSync: true
 
 需要semantic时，另行选择允许外发的语料并设置`envFile`绝对路径。环境文件使用`OPENAI_API_KEY`、`OPENAI_BASE_URL`、`OPENAI_EMBEDDING_MODEL`和可选的`OPENAI_EMBEDDING_DIMENSIONS`。只填写路径，不把密钥写进仓库、聊天或浏览器表单。配置的准确默认值和校验规则见[接口参考](<docs/api.md>)。
 
+### 自动补向量（默认关闭）
+
+开启自动本地索引、选定非空外发范围并配置可用的 embedding 服务后，在「设置 → 对话回溯 → 后台同步」开启「自动补向量」，确认外发后保存。后台也会补齐已授权语料的历史缺口；**正文会发给服务商，可能产生费用**。用 `chat_recall_status` [查看进度和错误](<docs/api.md#公开-agent-工具>)；后台行为见[架构](<docs/architecture.md#8-dsh-hooks-与后台同步>)。
+
 ## 工具概览
 
 | 工具 | 用途 |
@@ -62,7 +66,7 @@ autoSync: true
 | `chat_recall_sessions` | 发现配置范围内的会话，支持标题筛选和分页 |
 | `chat_recall_status` | 查看覆盖与向量进度；显式同步文本或补齐允许范围内的向量 |
 
-单会话semantic查询会为允许外发的缺失文本补向量；多会话查询只用已有向量。exact、fuzzy、原文读取与cursor续页不调用embedding服务。自动同步只建立本地文本索引，不自动生成向量。
+单会话 semantic 首查可补齐允许外发的缺失向量；多会话查询只用已有向量。exact、fuzzy、原文读取及 cursor 续页不直接请求 embedding。
 
 搜索快照最多1000个候选；cursor绑定调用者和查询条件，30分钟过期，运行实例重启后失效。ANN结果不保证穷举。DSH公开读取接口内部可能物化完整事件数组或解码压缩日志，插件的增量提取不等于底层字节范围读取。详见[架构边界](<docs/architecture.md>)。
 

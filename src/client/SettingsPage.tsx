@@ -8,6 +8,7 @@ import type {
 } from './contracts.js';
 import type { Translate, TextKey } from './locale.js';
 import {
+  canAutoEmbed,
   configuration,
   confirmations,
   dirty,
@@ -110,6 +111,8 @@ function SavedSummary({ value, t }: { value: Configuration; t: Translate }) {
         <dd>{scopeText(value.embeddingSessionIds, true)}</dd>
         <dt>{t('syncSummary')}</dt>
         <dd>{t(value.autoSync ? 'on' : 'off')}</dd>
+        <dt>{t('autoEmbed')}</dt>
+        <dd>{t(value.autoEmbed ? 'on' : 'off')}</dd>
       </dl>
       <p className="cr-muted">{t('summaryNote')}</p>
     </section>
@@ -335,6 +338,9 @@ function Editor({
     );
   const checked = validate(state.draft);
   const permission = confirmations(state.base, checked.value);
+  const autoEmbedAvailable =
+    canAutoEmbed(checked.value.autoSync, checked.value.embeddingSessionIds) &&
+    !checked.errors.includes('invalidSubset');
   const changed = dirty(state);
   const stale = snapshot.revision !== undefined && snapshot.revision !== state.revision;
   const served = describe.view?.namespaces.some((entry) => entry.ns === entryId) ?? false;
@@ -524,6 +530,14 @@ function Editor({
           label={t('autoSync')}
           description={t('autoSyncHelp')}
         />
+        <Toggle
+          id={`${id}-auto-embed`}
+          checked={state.draft.autoEmbed}
+          onChange={(autoEmbed) => change((draft) => ({ ...draft, autoEmbed }))}
+          disabled={locked || (!state.draft.autoEmbed && !autoEmbedAvailable)}
+          label={t('autoEmbed')}
+          description={t(autoEmbedAvailable ? 'autoEmbedHelp' : 'autoEmbedRequires')}
+        />
       </FieldSet>
       <Advanced title={t('advanced')}>
         <div className="cr-fields-grid">
@@ -574,7 +588,7 @@ function Editor({
           </ul>
         </Notice>
       )}
-      {changed && (permission.local || permission.outbound) && (
+      {changed && checked.errors.length === 0 && (permission.local || permission.outbound) && (
         <FieldSet title={t('confirmations')} className="cr-confirmations">
           {permission.local && (
             <Checkbox
@@ -597,7 +611,7 @@ function Editor({
                 onChange={(outboundConfirmed) =>
                   setState((previous) => (previous ? { ...previous, outboundConfirmed } : previous))
                 }
-                label={t('outboundConfirm')}
+                label={t(checked.value.autoEmbed ? 'outboundAutoEmbedConfirm' : 'outboundConfirm')}
               />
             </div>
           )}

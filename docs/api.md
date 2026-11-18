@@ -8,17 +8,16 @@
 
 | 边界 | 稳定性 | 权威源码 |
 | --- | --- | --- |
-| Agent 可调用的四个工具 | 公开对接面；参数以注册的工具 schema 为准 | [工具注册](<../src/host/plugin.ts#L324-L672>)、[参数类型](<../src/host/types.ts#L15-L37>) |
-| 插件九项配置 | 公开配置面；以运行时 Config 校验为准 | [Config](<../src/host/config.ts>) |
+| Agent 可调用的四个工具 | 公开对接面；参数以注册的工具 schema 为准 | [Host 工具注册与执行](<../src/host/plugin.ts>)、[Host 类型](<../src/host/types.ts>) |
+| 插件配置 | 公开配置面；以运行时 Config 校验为准 | [Config](<../src/host/config.ts>) |
 | 缓存行、搜索覆盖信息及展示策略 | 项目内部类型；可能随实现调整 | [数据模型](<../src/shared/model.ts>)、[存储](<../src/storage/store.ts>)、[候选策略](<../src/core/candidates.ts>) |
-| Host ↔ worker JSONL | 私有、不稳定；不能当作通用 RPC 服务 | [协议](<../src/shared/protocol.ts>)、[worker](<../src/worker/main.ts>) |
+| Host ↔ worker JSONL | 私有、不稳定；不能当作通用 RPC 服务 | [协议](<../src/shared/protocol.ts>)、[worker](<../src/worker/main.ts>)、[桥接](<../src/host/bridge.ts>) |
 | DSH Host／Client 结构视图 | 本插件自建的最小结构契约，不是官方完整 SDK | [Host 契约](<../src/host/contracts.ts>)、[Client 契约](<../src/client/contracts.ts>) |
 
 下文的核心类型片段是阅读索引，不复制整套 TypeScript 声明。
 运行时 JSON、来源事件及 Arrow 边界仍需校验，编译通过不代表输入可信。
 四工具参数均拒绝 schema 以外的字段；成功值是对象，默认渲染成一个 JSON 文本块。
 失败以带 `code` 的异常交给 DSH 工具执行器，不使用下文 worker 的 `ok: false` 封套。
-见 [工具 schema／输出渲染](<../src/host/plugin.ts#L43-L58>)。
 
 ## 公开 Agent 工具
 
@@ -38,7 +37,6 @@
 ### `chat_recall_search`
 
 查找候选原话；**命中并不代表事实正确**，使用 `chat_recall_read` 核验原文。
-权威定义：[注册及执行](<../src/host/plugin.ts#L324-L411>)、[搜索实现](<../src/storage/store.ts#L1004-L1223>)。
 
 | 参数 | 必填／默认 | 范围与含义 |
 | --- | --- | --- |
@@ -114,9 +112,7 @@ interface SearchPage {
 
 ### `chat_recall_read`
 
-读取命中文本、可见附件引用及邻近的已索引消息。**每一页都回读 DSH 原事件核验**，
-不是只在首读取页核验一次。权威定义：[Host 读取与来源检查](<../src/host/plugin.ts#L509-L634>)、
-[存储分页](<../src/storage/store.ts#L1224-L1312>)。
+读取命中文本、可见附件引用及邻近的已索引消息。**每一页都回读 DSH 原事件核验**。
 
 | 参数 | 必填／默认 | 范围与含义 |
 | --- | --- | --- |
@@ -158,7 +154,6 @@ UTF-16 分页不会拆开代理对；落在代理对中间的位置会调整，`
 ### `chat_recall_sessions`
 
 只发现已配置范围，不发现或开启未配置的历史；包括归档主会话。
-权威定义：[会话列表](<../src/host/plugin.ts#L412-L487>)。
 
 | 参数 | 默认 | 范围与含义 |
 | --- | --- | --- |
@@ -184,8 +179,6 @@ UTF-16 分页不会拆开代理对；落在代理对中间的位置会调整，`
 提醒标题过滤并不完整。`truncated` 为物化列表截断信号，不等于当前页还有下一页。
 
 ### `chat_recall_status`
-
-权威定义：[状态工具](<../src/host/plugin.ts#L635-L672>)、[存储状态](<../src/storage/store.ts#L1344-L1377>)。
 
 | 参数 | 默认 | 范围与含义 |
 | --- | --- | --- |
@@ -213,14 +206,17 @@ UTF-16 分页不会拆开代理对；落在代理对中间的位置会调整，`
     "state": "ready", "ready": {"type": "ready", "protocol": 1, "pid": 1234, "node": "v22.6.0", "lancedb": "0.41.0"},
     "pending": 0, "lastErrorCode": null
   },
-  "configuredSessions": [], "embeddingSessions": [], "dirtySessions": 0,
-  "syncErrors": [], "actionResult": null
+  "configuredSessions": [], "embeddingSessions": [], "autoEmbed": false, "dirtySessions": 0,
+  "syncErrors": [], "autoEmbedErrors": [], "actionResult": null
 }
 ```
 
 `embedding.status` 为 `not-configured | config-changed | pending | ready`。
-`bridge.ready` 在已握手时为下文的 `WorkerReady`，其他情况下可为 `null`。
-`syncErrors` 为 `{sessionId, code}[]`。`actionResult`：status 为 `null`，sync 为
+`bridge.ready` 为已握手的 `WorkerReady` 或 `null`。
+`autoEmbed` 是当前代次的开关，不表示服务可用或向量已齐；`dirtySessions` 只统计队列中的待处理项。
+`syncErrors` 和 `autoEmbedErrors` 均为 `{sessionId, code}[]`，分别记录文本同步和后台补向量失败，不含正文或服务响应。
+向量补齐后清除该会话的后台错误；代次更换时重置。
+`actionResult`：status 为 `null`，sync 为
 `{results, deferred}`，embed 为 `{synchronization: {results, deferred}, embedding: EmbedResult}`。
 同步 results 项含会话 ID、cursor、读取／新增计数及来源，或 `{sessionId, error}`／`skipped: "subagent"`。
 
@@ -235,13 +231,9 @@ UTF-16 分页不会拆开代理对；落在代理对中间的位置会调整，`
 - `CURSOR_EXPIRED`：从新的搜索／读取或 sessions `offset: 0` 开始；`INVALID_CURSOR`：
   检查是否混用查询、调用者或工具，不能修改令牌或循环重试同一个令牌。
 
-实现：[Host 游标包装](<../src/host/plugin.ts#L340-L382>)、[签名及读取令牌](<../src/host/plugin.ts#L488-L508>)、
-[搜索快照](<../src/core/cursors.ts>)。令牌为不透明凭据，不应解析为业务状态。
+令牌为不透明凭据，不应解析为业务状态。实现见[搜索快照](<../src/core/cursors.ts>)及上方的 Host 工具实现。
 
-## 公开 Config：九字段
-
-权威来源：[字段与默认值](<../src/host/config.ts#L61-L104>)、[规范化和交叉校验](<../src/host/config.ts#L22-L51>)、
-[嵌入范围校验](<../src/host/config.ts#L121-L150>)、[配置类型](<../src/host/types.ts#L4-L14>)。
+## 公开 Config
 
 | 字段 | 默认 | 类型、验证及含义 |
 | --- | --- | --- |
@@ -251,7 +243,8 @@ UTF-16 分页不会拆开代理对；落在代理对中间的位置会调整，`
 | `embeddingSessionIds` | `[]` | 空为禁止文本嵌入外发；`["all"]` 为已配置语料全部，或其非空子集 |
 | `envFile` | 未设置 | 可选绝对路径，无 NUL；是凭据文件**路径**，不是 API key；只由 worker 的 Node 环境加载 |
 | `callerSessionIds` | `[]` | 空为允许该 profile 的调用者；非空为调用会话 ID allowlist；不允许 `"all"` |
-| `autoSync` | `true` | boolean；后台回填及处理提交后的事件尾部，不自动生成向量 |
+| `autoSync` | `true` | boolean；后台回填及处理提交后的事件尾部，本身只生成本地文本索引 |
+| `autoEmbed` | `false` | boolean；后台外发已授权的缺失分块；为 `true` 时要求 `autoSync: true` 且 `embeddingSessionIds` 非空 |
 | `dominantMin` | `0.5` | 有限 number，`0–1`；单候选展示的 top1 余弦下限 |
 | `dominantGap` | `0.15` | 有限 number，`0–2`；单候选展示的 top1−top2 间隔 |
 
@@ -275,8 +268,7 @@ ID 会 trim、去重；不得含空白／控制字符，`"all"` 必须单独使�
 `spaceId` 由规范化 endpoint、model、dimensions 和 float 编码计算；不包含 API key。
 换 key 不会自动换空间；换 endpoint／model／维度不能复用旧空间，会报 `EMBEDDING_CONFIG_CHANGED`。
 不得自动更换模型、混合向量或把旧向量标成新空间；需要保留原配置，或明确配置独立的新索引目录。
-文本检索不依赖嵌入配置。源码：[嵌入客户端](<../src/embedding/client.ts#L72-L99>)、
-[空间标识](<../src/embedding/client.ts#L137-L155>)、[空间保护](<../src/storage/store.ts#L503-L507>)。
+文本检索不依赖嵌入配置。环境校验与空间标识见[嵌入客户端](<../src/embedding/client.ts>)。
 
 ## 内部数据类型（不稳定）
 
@@ -286,10 +278,10 @@ ID 会 trim、去重；不得含空白／控制字符，`"all"` 必须单独使�
 | `MessageRow` | `id=sessionId:eventSeq`、会话元数据、`eventSeq/time/role/sourceMessageId/contentJson`；`archived` 当前固定为 false，不能据此判断原会话归档；contentJson 为可见 text／image／file | [MessageRow](<../src/shared/model.ts#L18-L42>) |
 | `BlockRow`／`IndexedBlock` | `id/messageId/sessionId/origin/role/time/eventSeq/blockIndex/text`，后者增加 `textHash/dedupKey`；只给文本建检索块，保留原 blockIndex | [块类型](<../src/shared/model.ts#L43-L57>) |
 | `Chunk` | `{start, end, text}`；正文原样切片，位置为 UTF-16；分块尺寸另按 Unicode codepoint 计算 | [Chunk](<../src/core/chunking.ts#L1-L20>) |
-| `VectorRow` | chunkId、来源定位、textHash／dedupKey、chunkingVersion／spaceId、start／end、vector；不复制原文正文 | [向量行](<../src/storage/store.ts#L147-L166>) |
-| `ProgressRow`／`SpaceRow` | 块哈希＋分块版本＋空间的完成进度，及空间维度；不等于来源文本 checkpoint | [进度类型](<../src/storage/store.ts#L133-L146>) |
+| `VectorRow` | chunkId、来源定位、textHash／dedupKey、chunkingVersion／spaceId、start／end、vector；不复制原文正文 | [存储](<../src/storage/store.ts>) |
+| `ProgressRow`／`SpaceRow` | 块哈希＋分块版本＋空间的完成进度，及空间维度；不等于来源文本 checkpoint | 同上 |
 | `SearchHit` | ref、来源位置、role／time、textHash、excerpt、start／end；exact 加 matchStart／matchEnd，fuzzy 加 matchedTerms／coverage／bm25／score，semantic 加 similarity | [SearchHit](<../src/shared/model.ts#L63-L81>) |
-| `ReadResult` | 来源位置、text／textHash、offset／nextOffset／totalLength、attachments、context；Host 再加 verified／source／nextCursor／historicalText | [基础结果](<../src/shared/model.ts#L97-L125>)、[Host 增补](<../src/host/plugin.ts#L582-L632>) |
+| `ReadResult` | 来源位置、text／textHash、offset／nextOffset／totalLength、attachments、context；Host 再加 verified／source／nextCursor／historicalText | [基础结果](<../src/shared/model.ts#L97-L125>) |
 
 搜索 excerpt 最多 800 UTF-16 单位，不是完整消息；同源／继承文本会去重，命中数不等于消息数。
 `SearchCoverage` 含 method、candidateLimit、exhaustive，以及按模式出现的 examinedCandidates、
@@ -298,14 +290,13 @@ terms、rerank、scopeChunks、pendingBlocks、annExhaustive。当前候选上�
 `exhaustive`／`candidateTruncated` 描述本次索引与候选过程，不保证来源同步或语义答案完整。
 `CandidatePresentation` 含 count、policy、comparison、notice；comparison 给 scoreType、top3、
 gap12 和阈值。相似度、BM25、关键词覆盖比例不能混作同一种分数或概率。
-详见 [覆盖类型](<../src/storage/store.ts#L60-L84>)、[展示类型](<../src/core/candidates.ts#L25-L54>)。
+覆盖类型见存储实现，展示类型见[候选策略](<../src/core/candidates.ts#L25-L54>)。
 
 ## 私有 worker JSONL（不稳定）
 
 Host 通过受管子进程的 stdin／stdout 传递逐行 JSON，不监听 HTTP 端口。
 每行一个对象，request ID 对应响应；worker 串行执行，无隐式重放。
 stdout 专供协议，stderr 被排空但不转发，以免泄露凭据或环境诊断。
-权威来源：[协议类型](<../src/shared/protocol.ts>)、[握手类型](<../src/host/bridge.ts#L15-L27>)、[分发](<../src/worker/main.ts#L50-L143>)。
 
 ```ts
 type WorkerRequest = { id: number; method: Method; params: unknown; diagnostics?: boolean };
@@ -322,7 +313,7 @@ ready 表示协议已就绪，不表示 store 已配置；每个新 worker 先�
 | `configure` | `{embeddingEnabled: boolean, candidatePolicy?: CandidatePolicy}` | `{configured: true}`；打开库并恢复 journal |
 | `sync` | `SyncBatch = {session, messages, blocks}` | `{session, messages: number, blocks: number, changed: boolean}` |
 | `checkpoints` | `{sessionIds?: string[]}`；省略为库内全部，空数组为无会话 | `{sessions: SessionRow[]}` |
-| `embed` | `{sessionIds?: string[]}`；当前运行时要求实际传数组 | `EmbedResult = {new, reused, remaining, remainingUnit: "blocks", spaceId}`；new／reused 为 chunk 数 |
+| `embed` | `{sessionIds?: string[], oneBatch?: boolean}`；运行时要求 ID 数组；`oneBatch` 默认 `false`，为 `true` 时最多补一批 | `EmbedResult = {new, reused, remaining, remainingUnit: "blocks", spaceId}`；`new/reused` 计分块，`remaining` 计未完成的原文块 |
 | `search` | `SearchRequest`：query／mode／sessionIds／binding 及可选过滤、limit、cursor | `SearchResult`；不包含 Host 来源附加项 |
 | `read` | `Partial<ReadRequest>`，运行时仍要求 ref | `ReadResult`，尚未回读 DSH 核验 |
 | `sessions` | `{sessionIds?, query?, offset?, limit?}`；当前运行时要求实际传 sessionIds 数组，limit 为 1–100 | `{sessions, total, offset, nextOffset}` |
@@ -335,8 +326,7 @@ ready 表示协议已就绪，不表示 store 已配置；每个新 worker 先�
 
 ## 错误码与处理
 
-以下为当前实现用于分支处理的明确代码组，不是 DSH 全局错误枚举；详细消息和内部新增码不稳定。
-权威来源：[worker 允许码](<../src/worker/main.ts#L19-L37>)、[桥接错误](<../src/host/bridge.ts#L65-L111>)、[Host 权限](<../src/host/plugin.ts#L233-L246>)。
+以下是插件的错误码，不是 DSH 全局枚举；详细消息和内部新增码不稳定。源码见上方的 Host、worker 和桥接入口。
 
 | 代码组 | 处理 |
 | --- | --- |
@@ -354,7 +344,7 @@ ready 表示协议已就绪，不表示 store 已配置；每个新 worker 先�
 ## Client 最小结构契约（项目内部，不稳定）
 
 设置页只消费公共服务的必要字段；这些是本插件声明，不是完整 Client SDK，也不是私有 HTTP 路由。
-权威来源：[契约](<../src/client/contracts.ts>)、[配置模型](<../src/client/model.ts>)、[保存实现](<../src/client/SettingsPage.tsx#L370-L399>)。
+设置保存见[配置模型](<../src/client/model.ts>)和[设置页](<../src/client/SettingsPage.tsx>)。
 
 ```ts
 interface FormSnapshot { status: 'loading' | 'ready' | 'unavailable'; value: unknown; revision: number | undefined; writable: boolean }
@@ -371,9 +361,8 @@ interface SessionListSnapshot {
 ```
 
 `configForms.describe()` 提供 namespaces 的 `{ns, value, revision}` 及 writable；
-`configForms.get(entryId)` 提供表单镜像。`SettingsPathOp` 是 set／unset 路径操作，保存时
-将九字段作为同一次 mutate 提交，并携带已读取的 `expectedRevision`；`false`／异常表示拒绝，
-应重读当前配置而非强制覆盖。凭据只保存文件路径，不把 key 放入设置表单。
+`configForms.get(entryId)` 提供表单镜像。保存以一次 `mutate` 提交完整草稿的 set／unset 操作及编辑基线 `expectedRevision`；
+`false`／异常表示拒绝，不应强制覆盖。缺少布尔 `autoEmbed` 的旧快照不写入；从关切到开须确认外发，即使沿用原授权。凭据只保存文件路径，不把 key 放入设置表单。
 `settings.section` 的 props 提供 `useSessions(selector, equality?)`；会话项只使用
 `id/displayTitle/title?/cwd?/origin?` 元数据，`origin: "subagent"` 从可选主会话中排除。
 该 hook 不 retain／打开会话，也不搜索消息正文；不能把内部 manager 的 items／state／error 当公共字段。

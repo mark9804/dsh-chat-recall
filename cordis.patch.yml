@@ -6,3 +6,4 @@
         sessionIds: []
         embeddingSessionIds: []
         autoSync: true
+        autoEmbed: false

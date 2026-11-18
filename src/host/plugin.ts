@@ -174,9 +174,17 @@ export function applyRuntime(
     return bridge.request(method, params, signal) as Promise<Result<M>>;
   }
   const syncer = new SessionSync({ ctx, request, sessionIds: config.sessionIds });
-  const dirty = new Set<string>(),
+  const autoEmbed = config.autoSync && config.autoEmbed === true;
+  // True means check vector backlog even if the text checkpoint did not move.
+  const dirty = new Map<string, boolean>(),
     syncErrors = new Map<string, string>(),
+    autoEmbedErrors = new Map<string, string>(),
     lastChecked = new Map<string, number>();
+  function markDirty(id: string, checkVectors = false) {
+    if (closing) return;
+    dirty.set(id, checkVectors || dirty.get(id) === true);
+    schedule();
+  }
   let timer: NodeJS.Timeout | null | undefined,
     draining: Promise<void> | null | undefined,
     checkOrder = 0;
@@ -188,8 +196,7 @@ export function applyRuntime(
     if (config.autoSync) {
       const ids = await syncer.ids(lifetime.signal);
       if (closing) return;
-      for (const id of ids) dirty.add(id);
-      schedule();
+      for (const id of ids) markDirty(id, autoEmbed && canEmbed([id]));
     }
   };
   let initialization = initial().catch(() => {
@@ -207,27 +214,42 @@ export function applyRuntime(
     timer.unref?.();
   }
   async function drain() {
-    const id = dirty.values().next().value;
-    if (id === undefined) return;
+    const entry = dirty.entries().next().value;
+    if (!entry) return;
+    const [id, checkVectors] = entry;
     dirty.delete(id);
+    let synced;
     try {
-      await syncer.sync(id, lifetime.signal);
+      synced = await syncer.sync(id, lifetime.signal);
       syncErrors.delete(id);
     } catch (error) {
       if (!closing) syncErrors.set(id, errorCode(error, 'SYNC_FAILED'));
+      return;
+    }
+    if (
+      closing ||
+      !autoEmbed ||
+      synced.skipped ||
+      !canEmbed([id]) ||
+      !(checkVectors || synced.blocksAdded)
+    )
+      return;
+    try {
+      const result = await fillVectors([id], lifetime.signal, true);
+      if (result.remaining > 0) markDirty(id, true);
+    } catch (error) {
+      if (!closing) autoEmbedErrors.set(id, errorCode(error, 'EMBED_FAILED'));
     }
   }
   ctx.on('session/event', (session, event) => {
     if (
-      !closing &&
       config.autoSync &&
       syncer.allowed(session.id) &&
       session.header.origin !== 'subagent' &&
       !((session.header.delegationDepth ?? 0) > 0) &&
       ['user/message', 'assistant/message', 'turn/end', 'session/title'].includes(event.type)
     ) {
-      dirty.add(session.id);
-      schedule();
+      markDirty(session.id);
     }
   });
   function authorize(exec: ToolExecution): asserts exec is AuthorizedExecution {
@@ -260,10 +282,13 @@ export function applyRuntime(
     const selected = ordered.slice(0, 20),
       results: SyncSummary['results'] = [];
     for (const id of selected) {
-      dirty.delete(id);
+      const queueVectors = autoEmbed && canEmbed([id]);
+      // An on-demand read/search must not consume an existing vector check.
+      if (!queueVectors) dirty.delete(id);
       try {
         const result = await syncer.sync(id, signal);
         syncErrors.delete(id);
+        if (queueVectors && result.blocksAdded) markDirty(id, true);
         results.push(result);
       } catch (error) {
         signal?.throwIfAborted();
@@ -274,8 +299,7 @@ export function applyRuntime(
       }
     }
     if (config.autoSync) {
-      for (const id of ordered.slice(20)) dirty.add(id);
-      schedule();
+      for (const id of ordered.slice(20)) markDirty(id);
     }
     return { results, deferred: Math.max(0, ids.length - selected.length) };
   }
@@ -283,6 +307,16 @@ export function applyRuntime(
     return ids.every(
       (id) => config.embeddingSessionIds.includes('all') || config.embeddingSessionIds.includes(id),
     );
+  }
+  async function fillVectors(sessionIds: string[], signal?: AbortSignal, oneBatch = false) {
+    if (!canEmbed(sessionIds)) fail('EMBEDDING_SCOPE_NOT_ENABLED');
+    const result = await request(
+      'embed',
+      { sessionIds, ...(oneBatch ? { oneBatch } : {}) },
+      signal,
+    );
+    if (!result.remaining) for (const id of sessionIds) autoEmbedErrors.delete(id);
+    return result;
   }
   function register<A>(
     name: string,
@@ -394,9 +428,7 @@ export function applyRuntime(
         // A bounded single-session query may catch up its vectors. Broad queries use
         // existing vectors; explicit status/embed batches prepare a larger corpus.
         if (ids.length === 1)
-          await timed('host.embedding-catchup', () =>
-            request('embed', { sessionIds: ids }, exec.signal),
-          );
+          await timed('host.embedding-catchup', () => fillVectors(ids, exec.signal));
       }
       const result = await timed('host.search', () =>
         request('search', { ...args, sessionIds: ids, binding }, exec.signal),
@@ -649,10 +681,9 @@ export function applyRuntime(
         const ids = await scope(args, exec);
         actionResult = await synchronize(ids, exec.signal);
         if (args.action === 'embed') {
-          if (!canEmbed(ids)) fail('EMBEDDING_SCOPE_NOT_ENABLED');
           actionResult = {
             synchronization: actionResult,
-            embedding: await request('embed', { sessionIds: ids }, exec.signal),
+            embedding: await fillVectors(ids, exec.signal),
           };
         }
       }
@@ -664,8 +695,10 @@ export function applyRuntime(
         bridge: bridge.status(),
         configuredSessions: config.sessionIds,
         embeddingSessions: config.embeddingSessionIds,
+        autoEmbed,
         dirtySessions: dirty.size,
         syncErrors: [...syncErrors].map(([sessionId, code]) => ({ sessionId, code })),
+        autoEmbedErrors: [...autoEmbedErrors].map(([sessionId, code]) => ({ sessionId, code })),
         actionResult,
       };
     },
